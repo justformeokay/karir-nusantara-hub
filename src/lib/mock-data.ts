@@ -1,4 +1,16 @@
-import { Company, JobSeeker, SupportRequest, Notification, BillingRequest, DashboardStats } from '@/types';
+import { 
+  Company, 
+  JobSeeker, 
+  SupportRequest, 
+  Notification, 
+  BillingRequest, 
+  DashboardStats,
+  ReferralPartner,
+  ReferredCompany,
+  CommissionTransaction,
+  CommissionPayout,
+  ReferralStats
+} from '@/types';
 
 // Mock Companies
 export const mockCompanies: Company[] = Array.from({ length: 50 }, (_, i) => ({
@@ -83,4 +95,111 @@ export const mockDashboardStats: DashboardStats = {
   openSupportRequests: mockSupportRequests.filter(s => s.status === 'open').length,
   pendingBillings: mockBillingRequests.filter(b => b.status === 'pending').length,
   totalRevenue: mockBillingRequests.filter(b => b.status === 'approved').reduce((sum, b) => sum + b.amount, 0),
+};
+
+// ============= REFERRAL & AFFILIATE MOCK DATA =============
+
+// Generate unique referral codes
+const generateReferralCode = (name: string, index: number): string => {
+  const prefix = name.split(' ').map(n => n[0]).join('').toUpperCase();
+  return `${prefix}${String(index + 1).padStart(3, '0')}`;
+};
+
+// Mock Referral Partners
+export const mockReferralPartners: ReferralPartner[] = Array.from({ length: 20 }, (_, i) => {
+  const names = [
+    'Andi Pratama', 'Budi Setiawan', 'Citra Dewi', 'Dimas Nugroho',
+    'Eka Putri', 'Fajar Rahman', 'Gita Sari', 'Hendra Wijaya',
+    'Indah Permata', 'Joko Susilo', 'Kartika Sari', 'Lukman Hakim',
+    'Maya Anggraini', 'Nanda Putra', 'Olivia Kusuma', 'Putra Ramadhan',
+    'Qori Amalia', 'Rizky Firmansyah', 'Sari Wulandari', 'Taufik Hidayat'
+  ];
+  const name = names[i];
+  const totalEarned = Math.floor(Math.random() * 5000000) + 500000;
+  const totalPaid = Math.floor(totalEarned * (Math.random() * 0.6 + 0.2));
+  
+  return {
+    id: `partner-${i + 1}`,
+    name,
+    email: `${name.toLowerCase().replace(' ', '.')}@email.com`,
+    phone: `+62812${String(Math.floor(Math.random() * 100000000)).padStart(8, '0')}`,
+    referralCode: generateReferralCode(name, i),
+    totalCompaniesReferred: Math.floor(Math.random() * 15) + 1,
+    totalCommissionEarned: totalEarned,
+    availableBalance: totalEarned - totalPaid,
+    totalPaid,
+    status: i % 7 === 0 ? 'suspended' : 'active',
+    createdAt: new Date(Date.now() - Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString(),
+    lastPayoutDate: i % 3 === 0 ? new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString() : undefined,
+    bankName: ['BCA', 'Mandiri', 'BNI', 'BRI', 'CIMB Niaga'][i % 5],
+    bankAccountNumber: `${Math.floor(Math.random() * 9000000000) + 1000000000}`,
+    bankAccountName: name,
+  };
+});
+
+// Mock Referred Companies (companies that registered via referral)
+export const mockReferredCompanies: ReferredCompany[] = Array.from({ length: 35 }, (_, i) => {
+  const partner = mockReferralPartners[i % mockReferralPartners.length];
+  const company = mockCompanies[i % mockCompanies.length];
+  const totalRevenue = Math.floor(Math.random() * 2000000) + 100000;
+  
+  return {
+    id: `referred-${i + 1}`,
+    companyId: company.id,
+    companyName: company.name,
+    referralPartnerId: partner.id,
+    referralPartnerName: partner.name,
+    referralCode: partner.referralCode,
+    registrationDate: new Date(Date.now() - Math.random() * 180 * 24 * 60 * 60 * 1000).toISOString(),
+    totalTransactions: Math.floor(Math.random() * 10) + 1,
+    totalRevenueGenerated: totalRevenue,
+    totalCommission: Math.floor(totalRevenue * 0.4),
+  };
+});
+
+// Mock Commission Transactions
+export const mockCommissionTransactions: CommissionTransaction[] = Array.from({ length: 50 }, (_, i) => {
+  const referredCompany = mockReferredCompanies[i % mockReferredCompanies.length];
+  const transactionAmount = [50000, 100000, 150000, 200000, 250000][i % 5];
+  
+  return {
+    id: `commission-${i + 1}`,
+    billingRequestId: `billing-${(i % 25) + 1}`,
+    companyId: referredCompany.companyId,
+    companyName: referredCompany.companyName,
+    referralPartnerId: referredCompany.referralPartnerId,
+    referralPartnerName: referredCompany.referralPartnerName,
+    transactionAmount,
+    commissionAmount: Math.floor(transactionAmount * 0.4),
+    commissionRate: 0.4,
+    createdAt: new Date(Date.now() - Math.random() * 90 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+});
+
+// Mock Commission Payouts
+export const mockCommissionPayouts: CommissionPayout[] = Array.from({ length: 15 }, (_, i) => {
+  const partner = mockReferralPartners[i % mockReferralPartners.length];
+  const isPaid = i % 3 !== 0;
+  
+  return {
+    id: `payout-${i + 1}`,
+    referralPartnerId: partner.id,
+    referralPartnerName: partner.name,
+    amount: Math.floor(Math.random() * 1000000) + 200000,
+    status: isPaid ? 'paid' : 'pending',
+    payoutProofUrl: isPaid ? `https://picsum.photos/400/300?random=${i + 100}` : undefined,
+    requestedAt: new Date(Date.now() - Math.random() * 60 * 24 * 60 * 60 * 1000).toISOString(),
+    paidAt: isPaid ? new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString() : undefined,
+    notes: isPaid ? 'Pembayaran telah ditransfer' : undefined,
+  };
+});
+
+// Referral Stats
+export const mockReferralStats: ReferralStats = {
+  totalPartners: mockReferralPartners.length,
+  activePartners: mockReferralPartners.filter(p => p.status === 'active').length,
+  totalReferredCompanies: mockReferredCompanies.length,
+  totalCommissionGenerated: mockCommissionTransactions.reduce((sum, t) => sum + t.commissionAmount, 0),
+  pendingPayouts: mockCommissionPayouts.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0),
+  totalPaidOut: mockCommissionPayouts.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0),
 };

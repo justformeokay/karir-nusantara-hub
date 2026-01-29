@@ -76,3 +76,75 @@ export interface PaginationState {
   totalItems: number;
   itemsPerPage: number;
 }
+
+// ============= REFERRAL & AFFILIATE SYSTEM =============
+
+// Referral Partner
+export interface ReferralPartner {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  referralCode: string;
+  totalCompaniesReferred: number;
+  totalCommissionEarned: number;
+  availableBalance: number;
+  totalPaid: number;
+  status: 'active' | 'suspended';
+  createdAt: string;
+  lastPayoutDate?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankAccountName?: string;
+}
+
+// Referred Company (company registered via referral)
+export interface ReferredCompany {
+  id: string;
+  companyId: string;
+  companyName: string;
+  referralPartnerId: string;
+  referralPartnerName: string;
+  referralCode: string;
+  registrationDate: string;
+  totalTransactions: number;
+  totalRevenueGenerated: number;
+  totalCommission: number;
+}
+
+// Commission Transaction
+export interface CommissionTransaction {
+  id: string;
+  billingRequestId: string;
+  companyId: string;
+  companyName: string;
+  referralPartnerId: string;
+  referralPartnerName: string;
+  transactionAmount: number;
+  commissionAmount: number;
+  commissionRate: number;
+  createdAt: string;
+}
+
+// Commission Payout
+export interface CommissionPayout {
+  id: string;
+  referralPartnerId: string;
+  referralPartnerName: string;
+  amount: number;
+  status: 'pending' | 'paid';
+  payoutProofUrl?: string;
+  requestedAt: string;
+  paidAt?: string;
+  notes?: string;
+}
+
+// Referral Stats (for dashboard cards)
+export interface ReferralStats {
+  totalPartners: number;
+  activePartners: number;
+  totalReferredCompanies: number;
+  totalCommissionGenerated: number;
+  pendingPayouts: number;
+  totalPaidOut: number;
+}

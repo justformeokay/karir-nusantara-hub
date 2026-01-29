@@ -6,7 +6,10 @@ import {
   CreditCard, 
   LayoutDashboard,
   LogOut,
-  ChevronLeft
+  ChevronLeft,
+  UserPlus,
+  Building,
+  Wallet,
 } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +36,12 @@ const menuItems = [
   { title: 'Support', url: '/support', icon: MessageSquare },
   { title: 'Notifications', url: '/notifications', icon: Bell },
   { title: 'Billing', url: '/billing', icon: CreditCard },
+];
+
+const referralMenuItems = [
+  { title: 'Partners', url: '/referral/partners', icon: UserPlus },
+  { title: 'Companies', url: '/referral/companies', icon: Building },
+  { title: 'Payouts', url: '/referral/payouts', icon: Wallet },
 ];
 
 export function AppSidebar() {
@@ -72,6 +81,37 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => {
+                const isActive = location.pathname === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive}>
+                      <NavLink 
+                        to={item.url} 
+                        className={cn(
+                          'flex items-center gap-3 rounded-lg px-3 py-2 transition-colors',
+                          isActive 
+                            ? 'bg-primary text-primary-foreground' 
+                            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                        )}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span className={cn(isCollapsed && 'sr-only')}>{item.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel className={cn(isCollapsed && 'sr-only')}>
+            Referral & Affiliate
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {referralMenuItems.map((item) => {
                 const isActive = location.pathname === item.url;
                 return (
                   <SidebarMenuItem key={item.title}>
