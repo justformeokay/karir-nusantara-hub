@@ -12,6 +12,9 @@ import JobSeekers from "./pages/JobSeekers";
 import Support from "./pages/Support";
 import Notifications from "./pages/Notifications";
 import Billing from "./pages/Billing";
+import ReferralPartners from "./pages/ReferralPartners";
+import ReferredCompanies from "./pages/ReferredCompanies";
+import CommissionPayouts from "./pages/CommissionPayouts";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -70,6 +73,31 @@ const App = () => (
               element={
                 <AdminLayout>
                   <Billing />
+                </AdminLayout>
+              }
+            />
+            {/* Referral & Affiliate Routes */}
+            <Route
+              path="/referral/partners"
+              element={
+                <AdminLayout>
+                  <ReferralPartners />
+                </AdminLayout>
+              }
+            />
+            <Route
+              path="/referral/companies"
+              element={
+                <AdminLayout>
+                  <ReferredCompanies />
+                </AdminLayout>
+              }
+            />
+            <Route
+              path="/referral/payouts"
+              element={
+                <AdminLayout>
+                  <CommissionPayouts />
                 </AdminLayout>
               }
             />

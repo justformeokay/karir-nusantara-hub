@@ -9,6 +9,8 @@ type StatusVariant =
   | 'in_progress' 
   | 'closed' 
   | 'declined'
+  | 'suspended'
+  | 'paid'
   | 'default';
 
 interface StatusBadgeProps {
@@ -48,6 +50,14 @@ const statusConfig: Record<StatusVariant, { label: string; className: string }> 
   declined: {
     label: 'Declined',
     className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  },
+  suspended: {
+    label: 'Suspended',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  },
+  paid: {
+    label: 'Paid',
+    className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   },
   default: {
     label: 'Unknown',
