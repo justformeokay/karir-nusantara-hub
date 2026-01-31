@@ -12,14 +12,12 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
 
     try {
       const success = await login(email, password);
@@ -32,18 +30,17 @@ export default function Login() {
       } else {
         toast({
           title: 'Login failed',
-          description: 'Invalid email or password. Try: admin@karirnusantara.com / admin123',
+          description: 'Invalid email or password. Please try again.',
           variant: 'destructive',
         });
       }
     } catch (error) {
+      console.error('Login error:', error);
       toast({
         title: 'Error',
-        description: 'An unexpected error occurred.',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred. Make sure the API server is running on port 8081.',
         variant: 'destructive',
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -55,7 +52,7 @@ export default function Login() {
             <span className="text-primary-foreground font-bold text-xl">KN</span>
           </div>
           <div>
-            <CardTitle className="text-2xl">Welcome Back</CardTitle>
+            <CardTitle className="text-2xl">Super Admin Dashboard</CardTitle>
             <CardDescription>
               Sign in to Karir Nusantara Admin Panel
             </CardDescription>
@@ -72,6 +69,7 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={isLoading}
               />
             </div>
             <div className="space-y-2">
@@ -84,6 +82,7 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={isLoading}
                   className="pr-10"
                 />
                 <Button
@@ -92,6 +91,7 @@ export default function Login() {
                   size="icon"
                   className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
                   onClick={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
                 >
                   <Eye className="h-4 w-4 text-muted-foreground" />
                 </Button>
@@ -112,9 +112,15 @@ export default function Login() {
             </Button>
           </form>
           <div className="mt-6 p-4 rounded-lg bg-muted">
-            <p className="text-sm text-muted-foreground text-center">
+            <p className="text-xs text-muted-foreground">
               <Lock className="inline h-3 w-3 mr-1" />
-              Demo credentials: admin@karirnusantara.com / admin123
+              Demo: <strong>admin@karirnusantara.com</strong> / <strong>admin123</strong>
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Make sure the API server is running on port 8081
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              <a href="/debug-logs" className="text-blue-600 hover:underline">View debug logs →</a>
             </p>
           </div>
         </CardContent>

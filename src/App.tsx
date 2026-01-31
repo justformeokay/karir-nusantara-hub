@@ -15,6 +15,7 @@ import Billing from "./pages/Billing";
 import ReferralPartners from "./pages/ReferralPartners";
 import ReferredCompanies from "./pages/ReferredCompanies";
 import CommissionPayouts from "./pages/CommissionPayouts";
+import DebugLogs from "./pages/DebugLogs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -101,6 +102,7 @@ const App = () => (
                 </AdminLayout>
               }
             />
+            <Route path="/debug-logs" element={<DebugLogs />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
