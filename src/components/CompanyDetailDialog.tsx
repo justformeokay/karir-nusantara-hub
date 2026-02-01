@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Download, ExternalLink } from 'lucide-react';
 import { getCompanyDetail, CompanyDetailResponse } from '@/api/admin';
+import { getStaticFileUrl } from '@/api/client';
 import { ErrorLogger } from '@/utils/errorLogger';
 
 interface CompanyDetailDialogProps {
@@ -51,6 +52,8 @@ export function CompanyDetailDialog({ isOpen, onClose, companyId }: CompanyDetai
       setLoading(true);
       setError(null);
       const response = await getCompanyDetail(companyId);
+      console.log('Company Detail Response:', response);
+      console.log('Quota Info:', response.data?.quota_info);
       setData(response);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch company detail';
@@ -73,8 +76,10 @@ export function CompanyDetailDialog({ isOpen, onClose, companyId }: CompanyDetai
       alert('Document URL not available');
       return;
     }
+    // Convert relative URL to full URL with API base
+    const fullUrl = getStaticFileUrl(url);
     // Open in new tab for viewing/downloading
-    window.open(url, '_blank');
+    window.open(fullUrl, '_blank');
   };
 
   return (
@@ -125,6 +130,21 @@ export function CompanyDetailDialog({ isOpen, onClose, companyId }: CompanyDetai
                   <CardTitle>Company Information</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Company Logo */}
+                  {company.company_logo_url && (
+                    <div className="flex justify-center mb-4">
+                      <img
+                        src={getStaticFileUrl(company.company_logo_url)}
+                        alt={`${company.company_name} logo`}
+                        className="h-24 w-24 object-contain rounded-lg border"
+                        onError={(e) => {
+                          // Hide image if failed to load
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+                  
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium text-gray-600">Company Name</label>
@@ -428,6 +448,80 @@ export function CompanyDetailDialog({ isOpen, onClose, companyId }: CompanyDetai
                             }}
                           />
                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Job Posting Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Job Posting Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-cyan-50 rounded-lg border-2 border-cyan-200">
+                      <label className="text-sm font-medium text-gray-600">Free Jobs Active</label>
+                      <p className="text-2xl font-bold text-cyan-600">
+                        {company.quota_info?.free_jobs_active || 0}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Jobs using free quota</p>
+                    </div>
+                    <div className="p-4 bg-emerald-50 rounded-lg border-2 border-emerald-200">
+                      <label className="text-sm font-medium text-gray-600">Paid Jobs Active</label>
+                      <p className="text-2xl font-bold text-emerald-600">
+                        {company.quota_info?.paid_jobs_active || 0}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Jobs using paid quota</p>
+                    </div>
+                    <div className="p-4 bg-indigo-50 rounded-lg border-2 border-indigo-200">
+                      <label className="text-sm font-medium text-gray-600">Total Active Jobs</label>
+                      <p className="text-2xl font-bold text-indigo-600">
+                        {company.quota_info?.total_jobs_active || 0}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">All active job postings</p>
+                    </div>
+                    <div className="p-4 bg-amber-50 rounded-lg border-2 border-amber-200">
+                      <label className="text-sm font-medium text-gray-600">Draft Jobs</label>
+                      <p className="text-2xl font-bold text-amber-600">
+                        {company.quota_info?.draft_jobs_count || 0}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Unpublished jobs</p>
+                    </div>
+                  </div>
+
+                  {/* Visual breakdown */}
+                  <div className="mt-4">
+                    <label className="text-sm font-medium text-gray-600 mb-2 block">Job Distribution</label>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="h-8 bg-cyan-500 rounded-l flex items-center justify-center text-white text-sm font-medium"
+                        style={{ 
+                          width: `${((company.quota_info?.free_jobs_active || 0) / Math.max(company.quota_info?.total_jobs_active || 1, 1)) * 100}%`,
+                          minWidth: (company.quota_info?.free_jobs_active || 0) > 0 ? '60px' : '0'
+                        }}
+                      >
+                        {(company.quota_info?.free_jobs_active || 0) > 0 && (company.quota_info?.free_jobs_active || 0)}
+                      </div>
+                      <div 
+                        className="h-8 bg-emerald-500 rounded-r flex items-center justify-center text-white text-sm font-medium"
+                        style={{ 
+                          width: `${((company.quota_info?.paid_jobs_active || 0) / Math.max(company.quota_info?.total_jobs_active || 1, 1)) * 100}%`,
+                          minWidth: (company.quota_info?.paid_jobs_active || 0) > 0 ? '60px' : '0'
+                        }}
+                      >
+                        {(company.quota_info?.paid_jobs_active || 0) > 0 && (company.quota_info?.paid_jobs_active || 0)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 mt-2">
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-cyan-500 rounded"></div>
+                        <span className="text-xs text-gray-600">Free</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-emerald-500 rounded"></div>
+                        <span className="text-xs text-gray-600">Paid</span>
                       </div>
                     </div>
                   </div>

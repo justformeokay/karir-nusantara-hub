@@ -184,6 +184,11 @@ export interface CompanyDetailResponseData {
     free_quota_total: number;
     paid_quota: number;
     total_quota: number;
+    // Job posting details
+    free_jobs_active: number;
+    paid_jobs_active: number;
+    total_jobs_active: number;
+    draft_jobs_count: number;
   };
   created_at: string;
   updated_at: string;
@@ -242,4 +247,108 @@ export async function updateCompanyStatus(
   request: UpdateCompanyStatusRequest
 ): Promise<{ success: boolean; message: string }> {
   return api.patch(`/api/v1/admin/companies/${id}/status`, request);
+}
+
+// ============================================
+// JOB SEEKER MANAGEMENT API
+// ============================================
+
+export interface JobSeekerFromAPI {
+  id: number;
+  email: string;
+  full_name: string;
+  phone?: string;
+  avatar_url?: string;
+  is_active: boolean;
+  is_verified: boolean;
+  email_verified_at?: string;
+  created_at: string;
+  updated_at: string;
+  applications_count: number;
+  has_cv: boolean;
+}
+
+export interface JobSeekersResponse {
+  success: boolean;
+  message: string;
+  data: JobSeekerFromAPI[];
+  meta: PaginationMeta;
+}
+
+export interface JobSeekerFilter {
+  page?: number;
+  page_size?: number;
+  status?: 'active' | 'inactive' | '';
+  search?: string;
+}
+
+// Get all job seekers with pagination and filters
+export async function getJobSeekers(filter: JobSeekerFilter = {}): Promise<JobSeekersResponse> {
+  try {
+    const params: Record<string, string | number> = {};
+    
+    if (filter.page) params.page = filter.page;
+    if (filter.page_size) params.page_size = filter.page_size;
+    if (filter.status !== undefined && filter.status !== null && filter.status !== '') {
+      params.status = filter.status;
+    }
+    if (filter.search) params.search = filter.search;
+    
+    ErrorLogger.info('getJobSeekers', 'Fetching job seekers', { filter, params });
+    
+    const result = await api.get<JobSeekersResponse>('/api/v1/admin/job-seekers', { params });
+    
+    ErrorLogger.info('getJobSeekers', 'Job seekers fetched successfully', { 
+      count: result.data?.length || 0,
+      total: result.meta?.total_items || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getJobSeekers', 'Failed to fetch job seekers', error);
+    throw error;
+  }
+}
+
+// Get job seeker by ID
+export interface JobSeekerDetailResponse {
+  success: boolean;
+  message: string;
+  data: JobSeekerFromAPI;
+}
+
+export async function getJobSeekerById(id: number | string): Promise<JobSeekerDetailResponse> {
+  try {
+    ErrorLogger.info('getJobSeekerById', 'Fetching job seeker detail', { id });
+    
+    const result = await api.get<JobSeekerDetailResponse>(`/api/v1/admin/job-seekers/${id}`);
+    
+    ErrorLogger.info('getJobSeekerById', 'Job seeker detail fetched successfully', { 
+      id: result.data?.id,
+      fullName: result.data?.full_name
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getJobSeekerById', 'Failed to fetch job seeker detail', error);
+    throw error;
+  }
+}
+
+// Update job seeker status (suspend/reactivate)
+export interface UpdateJobSeekerStatusRequest {
+  action: 'suspend' | 'reactivate' | 'deactivate';
+  reason?: string;
+}
+
+export interface UpdateJobSeekerStatusResponse {
+  success: boolean;
+  message: string;
+}
+
+export async function updateJobSeekerStatus(
+  id: number | string,
+  request: UpdateJobSeekerStatusRequest
+): Promise<UpdateJobSeekerStatusResponse> {
+  return api.patch<UpdateJobSeekerStatusResponse>(`/api/v1/admin/job-seekers/${id}/status`, request);
 }

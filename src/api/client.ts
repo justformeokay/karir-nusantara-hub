@@ -137,3 +137,19 @@ export class ApiClient {
 }
 
 export const api = new ApiClient();
+
+// Helper function to get full URL for static files (e.g., documents)
+export function getStaticFileUrl(relativePath?: string): string {
+  if (!relativePath) return '';
+  
+  // If already a full URL, return as is
+  if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) {
+    return relativePath;
+  }
+  
+  // Remove leading slash if present
+  const path = relativePath.startsWith('/') ? relativePath.substring(1) : relativePath;
+  
+  // Combine with API base URL
+  return `${API_BASE_URL}/${path}`;
+}
