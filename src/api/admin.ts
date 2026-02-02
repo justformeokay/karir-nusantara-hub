@@ -352,3 +352,151 @@ export async function updateJobSeekerStatus(
 ): Promise<UpdateJobSeekerStatusResponse> {
   return api.patch<UpdateJobSeekerStatusResponse>(`/api/v1/admin/job-seekers/${id}/status`, request);
 }
+
+// ============================================
+// DASHBOARD DETAIL APIs
+// ============================================
+
+export interface DashboardStatsResponse {
+  success: boolean;
+  message: string;
+  data: {
+    total_companies: number;
+    companies_growth_percentage: number;
+    pending_verifications: number;
+    verified_companies: number;
+    suspended_companies: number;
+    total_jobs: number;
+    active_jobs: number;
+    pending_jobs: number;
+    flagged_jobs: number;
+    total_job_seekers: number;
+    job_seekers_growth_percentage: number;
+    active_job_seekers: number;
+    total_payments: number;
+    pending_payments: number;
+    total_revenue: number;
+    revenue_growth_percentage: number;
+    open_tickets: number;
+  };
+}
+
+// Get dashboard statistics
+export async function getDashboardStats(): Promise<DashboardStatsResponse> {
+  try {
+    ErrorLogger.info('getDashboardStats', 'Fetching dashboard stats');
+    
+    const result = await api.get<DashboardStatsResponse>('/api/v1/admin/dashboard/stats');
+    
+    ErrorLogger.info('getDashboardStats', 'Dashboard stats fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getDashboardStats', 'Failed to fetch dashboard stats', error);
+    throw error;
+  }
+}
+
+// Get pending companies list
+export interface PendingCompaniesResponse {
+  success: boolean;
+  message: string;
+  data: CompanyFromAPI[];
+}
+
+export async function getPendingCompanies(limit: number = 5): Promise<PendingCompaniesResponse> {
+  try {
+    ErrorLogger.info('getPendingCompanies', 'Fetching pending companies', { limit });
+    
+    const result = await api.get<PendingCompaniesResponse>(`/api/v1/admin/dashboard/pending-companies?limit=${limit}`);
+    
+    ErrorLogger.info('getPendingCompanies', 'Pending companies fetched successfully', { 
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPendingCompanies', 'Failed to fetch pending companies', error);
+    throw error;
+  }
+}
+
+// Payment admin response interface
+export interface PaymentAdminResponse {
+  id: number;
+  company_id: number;
+  company_name: string;
+  job_id?: number;
+  job_title?: string;
+  amount: number;
+  proof_image_url?: string;
+  status: string;
+  status_label: string;
+  note?: string;
+  confirmed_by_id?: number;
+  submitted_at?: string;
+  confirmed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Get pending payments list
+export interface PendingPaymentsResponse {
+  success: boolean;
+  message: string;
+  data: PaymentAdminResponse[];
+}
+
+export async function getPendingPayments(limit: number = 5): Promise<PendingPaymentsResponse> {
+  try {
+    ErrorLogger.info('getPendingPayments', 'Fetching pending payments', { limit });
+    
+    const result = await api.get<PendingPaymentsResponse>(`/api/v1/admin/dashboard/pending-payments?limit=${limit}`);
+    
+    ErrorLogger.info('getPendingPayments', 'Pending payments fetched successfully', { 
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPendingPayments', 'Failed to fetch pending payments', error);
+    throw error;
+  }
+}
+
+// Get open support tickets list
+export interface SupportTicketAdmin {
+  id: number;
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  subject: string;
+  message: string;
+  status: string;
+  priority?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenTicketsResponse {
+  success: boolean;
+  message: string;
+  data: SupportTicketAdmin[];
+}
+
+export async function getOpenSupportTickets(limit: number = 5): Promise<OpenTicketsResponse> {
+  try {
+    ErrorLogger.info('getOpenSupportTickets', 'Fetching open support tickets', { limit });
+    
+    const result = await api.get<OpenTicketsResponse>(`/api/v1/admin/dashboard/open-tickets?limit=${limit}`);
+    
+    ErrorLogger.info('getOpenSupportTickets', 'Open support tickets fetched successfully', { 
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getOpenSupportTickets', 'Failed to fetch open support tickets', error);
+    throw error;
+  }
+}
