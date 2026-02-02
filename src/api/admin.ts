@@ -571,3 +571,118 @@ export async function updateConversationStatus(
     throw error;
   }
 }
+// ============================================
+// BILLING/PAYMENTS API
+// ============================================
+
+export interface PaymentFromAPI {
+  id: number;
+  company_id: number;
+  company_name: string;
+  job_id?: number;
+  job_title?: string;
+  amount: number;
+  proof_image_url?: string;
+  status: string;
+  status_label: string;
+  note?: string;
+  confirmed_by_id?: number;
+  submitted_at: string;
+  confirmed_at?: string;
+}
+
+export interface PaymentsListResponse {
+  success: boolean;
+  message: string;
+  data: PaymentFromAPI[];
+  meta: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+  };
+}
+
+export interface PaymentProcessRequest {
+  action: 'confirm' | 'reject';
+  note?: string;
+  quota_amount?: number;
+}
+
+export async function getPayments(params: {
+  status?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PaymentsListResponse> {
+  try {
+    ErrorLogger.info('getPayments', 'Fetching payments', params);
+    
+    const queryParams = new URLSearchParams();
+    if (params.status && params.status !== 'all') {
+      queryParams.append('status', params.status);
+    }
+    if (params.page) queryParams.append('page', String(params.page));
+    if (params.page_size) queryParams.append('page_size', String(params.page_size));
+    
+    const result = await api.get<PaymentsListResponse>(
+      `/api/v1/admin/payments/?${queryParams.toString()}`
+    );
+    
+    ErrorLogger.info('getPayments', 'Payments fetched successfully', { 
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPayments', 'Failed to fetch payments', error);
+    throw error;
+  }
+}
+
+export async function getPaymentById(id: number): Promise<{
+  success: boolean;
+  message: string;
+  data: PaymentFromAPI;
+}> {
+  try {
+    ErrorLogger.info('getPaymentById', 'Fetching payment details', { id });
+    
+    const result = await api.get<{ success: boolean; message: string; data: PaymentFromAPI }>(
+      `/api/v1/admin/payments/${id}`
+    );
+    
+    ErrorLogger.info('getPaymentById', 'Payment fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPaymentById', 'Failed to fetch payment', error);
+    throw error;
+  }
+}
+
+export async function processPayment(
+  id: number,
+  action: 'approve' | 'reject',
+  note?: string,
+  quotaAmount?: number
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('processPayment', 'Processing payment', { id, action, quotaAmount });
+    
+    const result = await api.post<{ success: boolean; message: string }>(
+      `/api/v1/admin/payments/${id}/process`,
+      { 
+        action, 
+        note: note || '',
+        quota_amount: quotaAmount || 1
+      }
+    );
+    
+    ErrorLogger.info('processPayment', 'Payment processed successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('processPayment', 'Failed to process payment', error);
+    throw error;
+  }
+}
