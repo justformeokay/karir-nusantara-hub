@@ -74,7 +74,7 @@ export default function Dashboard() {
           value={stats.total_companies}
           icon={Building2}
           trend={stats.companies_growth_percentage !== 0 ? { 
-            value: Math.abs(stats.companies_growth_percentage), 
+            value: parseFloat(Math.abs(stats.companies_growth_percentage).toFixed(2)), 
             isPositive: stats.companies_growth_percentage > 0 
           } : undefined}
         />
@@ -83,7 +83,7 @@ export default function Dashboard() {
           value={stats.total_job_seekers}
           icon={Users}
           trend={stats.job_seekers_growth_percentage !== 0 ? { 
-            value: Math.abs(stats.job_seekers_growth_percentage), 
+            value: parseFloat(Math.abs(stats.job_seekers_growth_percentage).toFixed(2)), 
             isPositive: stats.job_seekers_growth_percentage > 0 
           } : undefined}
         />
@@ -97,7 +97,7 @@ export default function Dashboard() {
           value={formatCurrency(stats.total_revenue)}
           icon={TrendingUp}
           trend={stats.revenue_growth_percentage !== 0 ? { 
-            value: Math.abs(stats.revenue_growth_percentage), 
+            value: parseFloat(Math.abs(stats.revenue_growth_percentage).toFixed(2)), 
             isPositive: stats.revenue_growth_percentage > 0 
           } : undefined}
         />
