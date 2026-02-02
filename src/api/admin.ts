@@ -500,3 +500,74 @@ export async function getOpenSupportTickets(limit: number = 5): Promise<OpenTick
     throw error;
   }
 }
+
+// ============================================
+// SUPPORT/CONVERSATIONS API
+// ============================================
+
+export interface ConversationAdmin {
+  id: number;
+  company_id: number;
+  company_name: string;
+  title: string;
+  subject: string;
+  category: string;
+  status: string;
+  last_message: string;
+  last_message_at: string;
+  unread_count: number;
+  created_at: string;
+  updated_at: string;
+  closed_at?: {
+    Time: string;
+    Valid: boolean;
+  };
+}
+
+export interface ConversationsResponse {
+  success: boolean;
+  message: string;
+  data: ConversationAdmin[];
+}
+
+export async function getAllConversations(): Promise<ConversationsResponse> {
+  try {
+    ErrorLogger.info('getAllConversations', 'Fetching all conversations');
+    
+    const result = await api.get<ConversationsResponse>('/api/v1/admin/chat/conversations');
+    
+    ErrorLogger.info('getAllConversations', 'Conversations fetched successfully', { 
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getAllConversations', 'Failed to fetch conversations', error);
+    throw error;
+  }
+}
+
+export interface UpdateConversationStatusRequest {
+  status: string;
+}
+
+export async function updateConversationStatus(
+  conversationId: number,
+  status: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('updateConversationStatus', 'Updating conversation status', { conversationId, status });
+    
+    const result = await api.patch<{ success: boolean; message: string }>(
+      `/api/v1/admin/chat/conversations/${conversationId}/status`,
+      { status }
+    );
+    
+    ErrorLogger.info('updateConversationStatus', 'Conversation status updated successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('updateConversationStatus', 'Failed to update conversation status', error);
+    throw error;
+  }
+}

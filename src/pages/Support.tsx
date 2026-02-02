@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Search, Filter, Eye, CheckCircle, MessageSquare } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, Filter, Eye, CheckCircle, MessageSquare, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -37,27 +37,51 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
-import { mockSupportRequests } from '@/lib/mock-data';
-import { SupportRequest } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { getAllConversations, updateConversationStatus, ConversationAdmin } from '@/api/admin';
+import { ErrorLogger } from '@/utils/errorLogger';
 
 const ITEMS_PER_PAGE = 15;
 
 export default function Support() {
-  const [requests, setRequests] = useState<SupportRequest[]>(mockSupportRequests);
+  const [requests, setRequests] = useState<ConversationAdmin[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedRequest, setSelectedRequest] = useState<SupportRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<ConversationAdmin | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
   const { toast } = useToast();
+
+  // Fetch conversations on mount
+  useEffect(() => {
+    const fetchConversations = async () => {
+      try {
+        setLoading(true);
+        const response = await getAllConversations();
+        setRequests(response.data || []);
+      } catch (error) {
+        ErrorLogger.error('Support', 'Failed to fetch conversations', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load support requests. Please try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchConversations();
+  }, [toast]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((request) => {
       const matchesSearch = 
-        request.senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        request.company_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         request.subject.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === 'all' || request.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -76,28 +100,60 @@ export default function Support() {
     itemsPerPage: ITEMS_PER_PAGE,
   };
 
-  const handleMarkResolved = (request: SupportRequest) => {
-    setRequests(prev => prev.map(r => 
-      r.id === request.id ? { ...r, status: 'closed' } : r
-    ));
-    toast({
-      title: 'Ticket resolved',
-      description: `Support request "${request.subject}" has been marked as resolved.`,
-    });
-    setViewDialogOpen(false);
+  const handleMarkResolved = async (request: ConversationAdmin) => {
+    try {
+      setUpdating(true);
+      await updateConversationStatus(request.id, 'closed');
+      
+      setRequests(prev => prev.map(r => 
+        r.id === request.id ? { ...r, status: 'closed' } : r
+      ));
+      
+      toast({
+        title: 'Success',
+        description: `Conversation "${request.subject}" has been marked as closed.`,
+      });
+      setViewDialogOpen(false);
+    } catch (error) {
+      ErrorLogger.error('Support', 'Failed to update conversation status', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update conversation status. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdating(false);
+    }
   };
 
-  const handleSendReply = () => {
+  const handleSendReply = async () => {
     if (!replyText.trim()) return;
-    toast({
-      title: 'Reply sent',
-      description: 'Your response has been sent to the user.',
-    });
-    setReplyText('');
-    if (selectedRequest) {
-      setRequests(prev => prev.map(r => 
-        r.id === selectedRequest.id ? { ...r, status: 'in_progress' } : r
-      ));
+    
+    try {
+      setUpdating(true);
+      // Update status to in_progress when sending a reply
+      if (selectedRequest && selectedRequest.status !== 'in_progress' && selectedRequest.status !== 'closed') {
+        await updateConversationStatus(selectedRequest.id, 'in_progress');
+        
+        setRequests(prev => prev.map(r => 
+          r.id === selectedRequest.id ? { ...r, status: 'in_progress' } : r
+        ));
+      }
+      
+      toast({
+        title: 'Success',
+        description: 'Your response has been sent to the user.',
+      });
+      setReplyText('');
+    } catch (error) {
+      ErrorLogger.error('Support', 'Failed to send reply', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send reply. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -146,75 +202,83 @@ export default function Support() {
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Sender Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Subject</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedRequests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    No support requests found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                paginatedRequests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell className="font-medium">{request.senderName}</TableCell>
-                    <TableCell>
-                      <Badge variant={request.senderType === 'company' ? 'default' : 'secondary'}>
-                        {request.senderType === 'company' ? 'Company' : 'Candidate'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{request.subject}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={request.status} />
-                    </TableCell>
-                    <TableCell>{format(new Date(request.createdAt), 'dd MMM yyyy')}</TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            Actions
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => {
-                            setSelectedRequest(request);
-                            setViewDialogOpen(true);
-                          }}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => {
-                            setSelectedRequest(request);
-                            setViewDialogOpen(true);
-                          }}>
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            Reply
-                          </DropdownMenuItem>
-                          {request.status !== 'closed' && (
-                            <DropdownMenuItem onClick={() => handleMarkResolved(request)}>
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Mark as Resolved
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Sender Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Subject</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created Date</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-          <DataTablePagination pagination={pagination} onPageChange={setCurrentPage} />
+                </TableHeader>
+                <TableBody>
+                  {paginatedRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No support requests found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    paginatedRequests.map((request) => (
+                      <TableRow key={request.id}>
+                        <TableCell className="font-medium">{request.company_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="default">
+                            Company
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{request.subject}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={request.status} />
+                        </TableCell>
+                        <TableCell>{format(new Date(request.created_at), 'dd MMM yyyy')}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                Actions
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => {
+                                setSelectedRequest(request);
+                                setViewDialogOpen(true);
+                              }}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => {
+                                setSelectedRequest(request);
+                                setViewDialogOpen(true);
+                              }}>
+                                <MessageSquare className="h-4 w-4 mr-2" />
+                                Reply
+                              </DropdownMenuItem>
+                              {request.status !== 'closed' && (
+                                <DropdownMenuItem onClick={() => handleMarkResolved(request)}>
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Mark as Closed
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+              <DataTablePagination pagination={pagination} onPageChange={setCurrentPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -222,20 +286,20 @@ export default function Support() {
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Support Request Details</DialogTitle>
-            <DialogDescription>View and respond to this support request</DialogDescription>
+            <DialogTitle>Conversation Details</DialogTitle>
+            <DialogDescription>View and respond to this conversation</DialogDescription>
           </DialogHeader>
           {selectedRequest && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Sender</p>
-                  <p className="text-sm">{selectedRequest.senderName}</p>
+                  <p className="text-sm font-medium text-muted-foreground">Company</p>
+                  <p className="text-sm">{selectedRequest.company_name}</p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Type</p>
-                  <Badge variant={selectedRequest.senderType === 'company' ? 'default' : 'secondary'}>
-                    {selectedRequest.senderType === 'company' ? 'Company' : 'Candidate'}
+                  <p className="text-sm font-medium text-muted-foreground">Category</p>
+                  <Badge variant="outline">
+                    {selectedRequest.category}
                   </Badge>
                 </div>
                 <div>
@@ -248,9 +312,12 @@ export default function Support() {
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Message</p>
+                <p className="text-sm font-medium text-muted-foreground mb-2">Last Message</p>
                 <div className="p-4 rounded-lg bg-muted">
-                  <p className="text-sm">{selectedRequest.message}</p>
+                  <p className="text-sm">{selectedRequest.last_message || '(No messages yet)'}</p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {format(new Date(selectedRequest.last_message_at), 'dd MMM yyyy HH:mm')}
+                  </p>
                 </div>
               </div>
               <div>
@@ -259,6 +326,7 @@ export default function Support() {
                   placeholder="Type your response..."
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
+                  disabled={updating}
                   rows={4}
                 />
               </div>
@@ -266,12 +334,20 @@ export default function Support() {
           )}
           <DialogFooter className="gap-2">
             {selectedRequest?.status !== 'closed' && (
-              <Button variant="outline" onClick={() => handleMarkResolved(selectedRequest!)}>
+              <Button 
+                variant="outline" 
+                onClick={() => handleMarkResolved(selectedRequest!)}
+                disabled={updating}
+              >
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Mark Resolved
+                Mark as Closed
               </Button>
             )}
-            <Button onClick={handleSendReply} disabled={!replyText.trim()}>
+            <Button 
+              onClick={handleSendReply} 
+              disabled={!replyText.trim() || updating}
+            >
+              {updating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <MessageSquare className="h-4 w-4 mr-2" />
               Send Reply
             </Button>
