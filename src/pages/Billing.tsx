@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Filter, Eye, Check, X, CreditCard, Building, Loader2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
@@ -90,7 +90,7 @@ export default function Billing() {
 
   // Fetch payments from API
   const { data: paymentsData, isLoading, error } = useQuery({
-    queryKey: ['payments', statusFilter, currentPage],
+    queryKey: ['payments', statusFilter, currentPage, searchQuery],
     queryFn: () => getPayments({
       status: statusFilter === 'all' ? undefined : mapStatusToAPI(statusFilter),
       page: currentPage,
@@ -117,6 +117,11 @@ export default function Billing() {
     },
   });
 
+  // Reset page to 1 when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   const payments = paymentsData?.data || [];
   const allPayments = allPaymentsData?.data || [];
   const meta = paymentsData?.meta;
@@ -129,12 +134,40 @@ export default function Billing() {
     );
   }, [payments, searchQuery]);
 
-  const pagination = {
-    currentPage: meta?.page || currentPage,
-    totalPages: meta?.total_pages || 1,
-    totalItems: meta?.total || 0,
-    itemsPerPage: meta?.page_size || ITEMS_PER_PAGE,
-  };
+  // For pagination - if filtering, calculate pagination on filtered data
+  // Otherwise use API meta data
+  const paginationData = useMemo(() => {
+    if (searchQuery) {
+      // Client-side pagination for filtered results
+      const totalItems = filteredPayments.length;
+      const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+      
+      // Slice filtered data for current page
+      const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
+      const endIdx = startIdx + ITEMS_PER_PAGE;
+      
+      return {
+        displayData: filteredPayments.slice(startIdx, endIdx),
+        pagination: {
+          currentPage,
+          totalPages: Math.max(1, totalPages),
+          totalItems,
+          itemsPerPage: ITEMS_PER_PAGE,
+        },
+      };
+    } else {
+      // Server-side pagination
+      return {
+        displayData: payments,
+        pagination: {
+          currentPage: meta?.page || currentPage,
+          totalPages: meta?.total_pages || 1,
+          totalItems: meta?.total_items || 0,
+          itemsPerPage: meta?.per_page || ITEMS_PER_PAGE,
+        },
+      };
+    }
+  }, [payments, filteredPayments, searchQuery, currentPage, meta]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -345,14 +378,14 @@ export default function Billing() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPayments.length === 0 ? (
+                  {paginationData.displayData.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         No billing requests found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredPayments.map((payment) => (
+                    paginationData.displayData.map((payment) => (
                       <TableRow key={payment.id}>
                         <TableCell className="font-medium">{payment.company_name || 'N/A'}</TableCell>
                         <TableCell className="text-center">{calculateQuota(payment.amount)}</TableCell>
@@ -403,7 +436,7 @@ export default function Billing() {
                   )}
                 </TableBody>
               </Table>
-              <DataTablePagination pagination={pagination} onPageChange={setCurrentPage} />
+              <DataTablePagination pagination={paginationData.pagination} onPageChange={setCurrentPage} />
             </>
           )}
         </CardContent>

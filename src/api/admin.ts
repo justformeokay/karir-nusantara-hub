@@ -597,8 +597,8 @@ export interface PaymentsListResponse {
   data: PaymentFromAPI[];
   meta: {
     page: number;
-    page_size: number;
-    total: number;
+    per_page: number;
+    total_items: number;
     total_pages: number;
   };
 }
