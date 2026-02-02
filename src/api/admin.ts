@@ -623,20 +623,15 @@ export async function uploadAdminAttachment(
   type: 'image' | 'audio'
 ): Promise<{ success: boolean; message: string; data: { url: string; type: string; filename: string } }> {
   try {
-    ErrorLogger.info('uploadAdminAttachment', 'Uploading admin attachment', { type });
+    ErrorLogger.info('uploadAdminAttachment', 'Uploading admin attachment', { type, fileName: file.name });
     
     const formData = new FormData();
     formData.append('file', file);
     formData.append('type', type);
     
-    const result = await api.post<{ success: boolean; message: string; data: { url: string; type: string; filename: string } }>(
+    const result = await api.uploadFile<{ success: boolean; message: string; data: { url: string; type: string; filename: string } }>(
       '/api/v1/admin/chat/upload',
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      formData
     );
     
     ErrorLogger.info('uploadAdminAttachment', 'Admin attachment uploaded successfully');

@@ -14,12 +14,18 @@ export class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  private getHeaders(): HeadersInit {
+  private getHeaders(isFormData: boolean = false): HeadersInit {
     const token = localStorage.getItem('admin_token');
-    return {
-      'Content-Type': 'application/json',
+    const headers: HeadersInit = {
       ...(token && { Authorization: `Bearer ${token}` }),
     };
+    
+    // Only set Content-Type if not FormData (browser will handle it)
+    if (!isFormData) {
+      headers['Content-Type'] = 'application/json';
+    }
+    
+    return headers;
   }
 
   private buildUrl(endpoint: string, params?: Record<string, string | number | boolean>): string {
@@ -130,6 +136,17 @@ export class ApiClient {
     const response = await fetch(url, {
       method: 'DELETE',
       headers: this.getHeaders(),
+      ...options,
+    });
+    return this.handleResponse<T>(response);
+  }
+
+  async uploadFile<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<T> {
+    const url = this.buildUrl(endpoint, options?.params);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.getHeaders(true), // isFormData = true
+      body: formData,
       ...options,
     });
     return this.handleResponse<T>(response);
