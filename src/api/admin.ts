@@ -551,6 +551,103 @@ export interface UpdateConversationStatusRequest {
   status: string;
 }
 
+export interface ChatMessage {
+  id: number;
+  conversation_id: number;
+  sender_id: number;
+  sender_type: 'company' | 'admin';
+  message: string;
+  attachment_url?: { String: string; Valid: boolean } | null;
+  attachment_type?: { String: string; Valid: boolean } | null;
+  attachment_filename?: { String: string; Valid: boolean } | null;
+  is_read: boolean;
+  created_at: string;
+  sender_name: string;
+  sender_email: string;
+}
+
+export interface ConversationDetail {
+  conversation: ConversationAdmin;
+  messages: ChatMessage[];
+}
+
+export interface SendMessageRequest {
+  message: string;
+  attachment_url?: string;
+  attachment_type?: string;
+  attachment_filename?: string;
+}
+
+export async function getConversationDetail(
+  conversationId: number
+): Promise<{ success: boolean; message: string; data: ConversationDetail }> {
+  try {
+    ErrorLogger.info('getConversationDetail', 'Fetching conversation detail', { conversationId });
+    
+    const result = await api.get<{ success: boolean; message: string; data: ConversationDetail }>(
+      `/api/v1/admin/chat/conversations/${conversationId}`
+    );
+    
+    ErrorLogger.info('getConversationDetail', 'Conversation detail fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getConversationDetail', 'Failed to fetch conversation detail', error);
+    throw error;
+  }
+}
+
+export async function sendAdminMessage(
+  conversationId: number,
+  data: SendMessageRequest
+): Promise<{ success: boolean; message: string; data: ChatMessage }> {
+  try {
+    ErrorLogger.info('sendAdminMessage', 'Sending admin message', { conversationId });
+    
+    const result = await api.post<{ success: boolean; message: string; data: ChatMessage }>(
+      `/api/v1/admin/chat/conversations/${conversationId}/messages`,
+      data
+    );
+    
+    ErrorLogger.info('sendAdminMessage', 'Admin message sent successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('sendAdminMessage', 'Failed to send admin message', error);
+    throw error;
+  }
+}
+
+export async function uploadAdminAttachment(
+  file: File,
+  type: 'image' | 'audio'
+): Promise<{ success: boolean; message: string; data: { url: string; type: string; filename: string } }> {
+  try {
+    ErrorLogger.info('uploadAdminAttachment', 'Uploading admin attachment', { type });
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    
+    const result = await api.post<{ success: boolean; message: string; data: { url: string; type: string; filename: string } }>(
+      '/api/v1/admin/chat/upload',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    
+    ErrorLogger.info('uploadAdminAttachment', 'Admin attachment uploaded successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('uploadAdminAttachment', 'Failed to upload admin attachment', error);
+    throw error;
+  }
+}
+
 export async function updateConversationStatus(
   conversationId: number,
   status: string

@@ -1,359 +1,606 @@
-import { useState, useMemo, useEffect } from 'react';
-import { Search, Filter, Eye, CheckCircle, MessageSquare, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Search, Loader2, Image as ImageIcon, Mic, XCircle, MessageCircle, X, Download } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { DataTablePagination } from '@/components/ui/data-table-pagination';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
-import { getAllConversations, updateConversationStatus, ConversationAdmin } from '@/api/admin';
+import { cn, formatDate } from '@/lib/utils';
+import { getAllConversations, getConversationDetail, sendAdminMessage, uploadAdminAttachment, updateConversationStatus, ConversationAdmin, ChatMessage, ConversationDetail } from '@/api/admin';
 import { ErrorLogger } from '@/utils/errorLogger';
 
-const ITEMS_PER_PAGE = 15;
+const statusConfig: Record<string, { label: string; color: string }> = {
+  open: { label: 'Terbuka', color: 'bg-blue-50 text-blue-700' },
+  in_progress: { label: 'Sedang Diproses', color: 'bg-yellow-50 text-yellow-700' },
+  closed: { label: 'Ditutup', color: 'bg-gray-50 text-gray-700' },
+};
+
+const categoryConfig: Record<string, { label: string; color: string }> = {
+  complaint: { label: 'Komplain', color: 'bg-red-100 text-red-700' },
+  helpdesk: { label: 'Help Desk', color: 'bg-blue-100 text-blue-700' },
+  general: { label: 'Umum', color: 'bg-gray-100 text-gray-700' },
+  urgent: { label: 'Urgent', color: 'bg-orange-100 text-orange-700' },
+};
 
 export default function Support() {
-  const [requests, setRequests] = useState<ConversationAdmin[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [selectedRequest, setSelectedRequest] = useState<ConversationAdmin | null>(null);
-  const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [replyText, setReplyText] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewURL, setPreviewURL] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
 
-  // Fetch conversations on mount
-  useEffect(() => {
-    const fetchConversations = async () => {
-      try {
-        setLoading(true);
-        const response = await getAllConversations();
-        setRequests(response.data || []);
-      } catch (error) {
-        ErrorLogger.error('Support', 'Failed to fetch conversations', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to load support requests. Please try again.',
-          variant: 'destructive',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    fetchConversations();
-  }, [toast]);
+  // Fetch all conversations
+  const { data: conversations = [], isLoading: conversationsLoading } = useQuery({
+    queryKey: ['admin-conversations'],
+    queryFn: async () => {
+      const response = await getAllConversations();
+      return response.data || [];
+    },
+    refetchInterval: 3000,
+  });
 
-  const filteredRequests = useMemo(() => {
-    return requests.filter((request) => {
-      const matchesSearch = 
-        request.company_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        request.subject.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || request.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [requests, searchQuery, statusFilter]);
+  // Fetch selected conversation with messages
+  const { data: conversationDetail, isLoading: conversationLoading, error: conversationError } = useQuery({
+    queryKey: ['admin-conversation', selectedConversationId],
+    queryFn: async () => {
+      if (!selectedConversationId) return null;
+      const response = await getConversationDetail(selectedConversationId);
+      return response.data;
+    },
+    enabled: !!selectedConversationId,
+    refetchInterval: 2000,
+  });
 
-  const paginatedRequests = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredRequests.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredRequests, currentPage]);
-
-  const pagination = {
-    currentPage,
-    totalPages: Math.ceil(filteredRequests.length / ITEMS_PER_PAGE),
-    totalItems: filteredRequests.length,
-    itemsPerPage: ITEMS_PER_PAGE,
-  };
-
-  const handleMarkResolved = async (request: ConversationAdmin) => {
-    try {
-      setUpdating(true);
-      await updateConversationStatus(request.id, 'closed');
-      
-      setRequests(prev => prev.map(r => 
-        r.id === request.id ? { ...r, status: 'closed' } : r
-      ));
-      
+  // Send message mutation
+  const sendMessageMutation = useMutation({
+    mutationFn: async ({ conversationId, data }: { conversationId: number; data: any }) => {
+      const response = await sendAdminMessage(conversationId, data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-conversation', selectedConversationId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
+      setNewMessage('');
+      setSelectedFile(null);
+      setPreviewURL(null);
       toast({
         title: 'Success',
-        description: `Conversation "${request.subject}" has been marked as closed.`,
+        description: 'Pesan berhasil dikirim',
       });
-      setViewDialogOpen(false);
-    } catch (error) {
-      ErrorLogger.error('Support', 'Failed to update conversation status', error);
+    },
+    onError: (error: any) => {
+      ErrorLogger.error('Support', 'Failed to send message', error);
       toast({
         title: 'Error',
-        description: 'Failed to update conversation status. Please try again.',
+        description: error?.response?.data?.message || 'Gagal mengirim pesan',
         variant: 'destructive',
       });
-    } finally {
-      setUpdating(false);
+    },
+  });
+
+  // Update status mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ conversationId, status }: { conversationId: number; status: string }) => {
+      const response = await updateConversationStatus(conversationId, status);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-conversation', selectedConversationId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
+      toast({
+        title: 'Success',
+        description: 'Status percakapan berhasil diperbarui',
+      });
+    },
+    onError: (error: any) => {
+      ErrorLogger.error('Support', 'Failed to update status', error);
+      toast({
+        title: 'Error',
+        description: error?.message || 'Gagal memperbarui status',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Auto scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversationDetail?.messages]);
+
+  // Cleanup preview URL
+  useEffect(() => {
+    return () => {
+      if (previewURL) {
+        URL.revokeObjectURL(previewURL);
+      }
+    };
+  }, [previewURL]);
+
+  // Filter conversations
+  const filteredConversations = conversations.filter((conv) =>
+    conv.company_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    conv.subject.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validImageTypes.includes(file.type)) {
+      toast({
+        title: 'Error',
+        description: 'Format file tidak didukung. Gunakan JPG, PNG, GIF, atau WEBP',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: 'Error',
+        description: 'File terlalu besar. Maksimal 10MB',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSelectedFile(file);
+    setPreviewURL(URL.createObjectURL(file));
+  };
+
+  // Handle voice recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+        setSelectedFile(audioFile);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      setAudioChunks(chunks);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Gagal mengakses mikrofon',
+        variant: 'destructive',
+      });
+      ErrorLogger.error('Support', 'Failed to start recording', error);
     }
   };
 
-  const handleSendReply = async () => {
-    if (!replyText.trim()) return;
-    
-    try {
-      setUpdating(true);
-      // Update status to in_progress when sending a reply
-      if (selectedRequest && selectedRequest.status !== 'in_progress' && selectedRequest.status !== 'closed') {
-        await updateConversationStatus(selectedRequest.id, 'in_progress');
-        
-        setRequests(prev => prev.map(r => 
-          r.id === selectedRequest.id ? { ...r, status: 'in_progress' } : r
-        ));
-      }
-      
-      toast({
-        title: 'Success',
-        description: 'Your response has been sent to the user.',
-      });
-      setReplyText('');
-    } catch (error) {
-      ErrorLogger.error('Support', 'Failed to send reply', error);
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setMediaRecorder(null);
+    }
+  };
+
+  const cancelAttachment = () => {
+    setSelectedFile(null);
+    if (previewURL) {
+      URL.revokeObjectURL(previewURL);
+      setPreviewURL(null);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!selectedConversationId) return;
+    if (!newMessage.trim() && !selectedFile) {
       toast({
         title: 'Error',
-        description: 'Failed to send reply. Please try again.',
+        description: 'Pesan atau file harus diisi',
         variant: 'destructive',
       });
-    } finally {
-      setUpdating(false);
+      return;
+    }
+
+    try {
+      let messageData: any = { message: newMessage };
+
+      if (selectedFile) {
+        setIsUploading(true);
+        const fileType = selectedFile.type.startsWith('image/') ? 'image' : 'audio';
+        const uploadResult = await uploadAdminAttachment(selectedFile, fileType);
+        messageData = {
+          message: newMessage || (fileType === 'image' ? '📷 Gambar' : '🎤 Pesan Suara'),
+          attachment_url: uploadResult.data.url,
+          attachment_type: uploadResult.data.type,
+          attachment_filename: uploadResult.data.filename,
+        };
+        setIsUploading(false);
+      }
+
+      sendMessageMutation.mutate({
+        conversationId: selectedConversationId,
+        data: messageData,
+      });
+    } catch (error: any) {
+      setIsUploading(false);
+      ErrorLogger.error('Support', 'Failed to upload file', error);
+      toast({
+        title: 'Error',
+        description: error?.response?.data?.message || 'Gagal mengunggah file',
+        variant: 'destructive',
+      });
     }
   };
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Contact Support"
-        description="Handle incoming support requests from companies and job seekers"
+        title="Support & Chat"
+        description="Kelola percakapan dengan perusahaan dan pencari kerja"
       />
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <div className="h-[calc(100vh-15rem)] flex gap-4">
+        {/* Conversations List */}
+        <Card className="w-96 flex flex-col">
+          <CardHeader className="flex-none">
+            <CardTitle className="text-lg">Daftar Percakapan</CardTitle>
+            <div className="relative mt-3">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
-                placeholder="Search by name or subject..."
+                placeholder="Cari percakapan..."
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="pl-9"
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
               />
             </div>
-            <Select value={statusFilter} onValueChange={(value) => {
-              setStatusFilter(value);
-              setCurrentPage(1);
-            }}>
-              <SelectTrigger className="w-full sm:w-48">
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="open">Open</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-y-auto p-0">
+            {conversationsLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-gray-500">
+                <MessageCircle className="h-12 w-12 mb-2 opacity-20" />
+                <p className="text-sm">Belum ada percakapan</p>
+              </div>
+            ) : (
+              filteredConversations.map((conv) => {
+                const statusInfo = statusConfig[conv.status] || { label: conv.status, color: 'bg-gray-100' };
+                const categoryInfo = categoryConfig[conv.category] || { label: conv.category, color: 'bg-gray-100' };
 
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Sender Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created Date</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedRequests.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        No support requests found
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    paginatedRequests.map((request) => (
-                      <TableRow key={request.id}>
-                        <TableCell className="font-medium">{request.company_name}</TableCell>
-                        <TableCell>
-                          <Badge variant="default">
-                            Company
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{request.subject}</TableCell>
-                        <TableCell>
-                          <StatusBadge status={request.status} />
-                        </TableCell>
-                        <TableCell>{format(new Date(request.created_at), 'dd MMM yyyy')}</TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm">
-                                Actions
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => {
-                                setSelectedRequest(request);
-                                setViewDialogOpen(true);
-                              }}>
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Details
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => {
-                                setSelectedRequest(request);
-                                setViewDialogOpen(true);
-                              }}>
-                                <MessageSquare className="h-4 w-4 mr-2" />
-                                Reply
-                              </DropdownMenuItem>
-                              {request.status !== 'closed' && (
-                                <DropdownMenuItem onClick={() => handleMarkResolved(request)}>
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Mark as Closed
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-              <DataTablePagination pagination={pagination} onPageChange={setCurrentPage} />
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* View/Reply Dialog */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Conversation Details</DialogTitle>
-            <DialogDescription>View and respond to this conversation</DialogDescription>
-          </DialogHeader>
-          {selectedRequest && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Company</p>
-                  <p className="text-sm">{selectedRequest.company_name}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Category</p>
-                  <Badge variant="outline">
-                    {selectedRequest.category}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Subject</p>
-                  <p className="text-sm">{selectedRequest.subject}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Status</p>
-                  <StatusBadge status={selectedRequest.status} />
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Last Message</p>
-                <div className="p-4 rounded-lg bg-muted">
-                  <p className="text-sm">{selectedRequest.last_message || '(No messages yet)'}</p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {format(new Date(selectedRequest.last_message_at), 'dd MMM yyyy HH:mm')}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Reply</p>
-                <Textarea
-                  placeholder="Type your response..."
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  disabled={updating}
-                  rows={4}
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter className="gap-2">
-            {selectedRequest?.status !== 'closed' && (
-              <Button 
-                variant="outline" 
-                onClick={() => handleMarkResolved(selectedRequest!)}
-                disabled={updating}
-              >
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Mark as Closed
-              </Button>
+                return (
+                  <div
+                    key={conv.id}
+                    onClick={() => setSelectedConversationId(conv.id)}
+                    className={cn(
+                      'p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors',
+                      selectedConversationId === conv.id && 'bg-blue-50 border-l-4 border-l-blue-600'
+                    )}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-sm line-clamp-1">{conv.company_name}</h3>
+                        <p className="text-xs text-gray-500 mt-1">{conv.subject}</p>
+                      </div>
+                      {conv.unread_count > 0 && (
+                        <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">
+                          {conv.unread_count}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 line-clamp-2 mb-2">
+                      {conv.last_message || 'Belum ada pesan'}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-1">
+                        <Badge variant="outline" className={cn('text-xs px-2 py-0', categoryInfo.color)}>
+                          {categoryInfo.label}
+                        </Badge>
+                        <Badge variant="outline" className={cn('text-xs px-2 py-0', statusInfo.color)}>
+                          {statusInfo.label}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-gray-400">{formatDate(conv.last_message_at)}</span>
+                    </div>
+                  </div>
+                );
+              })
             )}
-            <Button 
-              onClick={handleSendReply} 
-              disabled={!replyText.trim() || updating}
-            >
-              {updating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Send Reply
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </CardContent>
+        </Card>
+
+        {/* Chat Messages */}
+        <Card className="flex-1 flex flex-col">
+          {!selectedConversationId ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+              <MessageCircle className="h-16 w-16 mb-4 opacity-20" />
+              <p className="text-lg font-medium">Pilih percakapan untuk memulai</p>
+            </div>
+          ) : conversationLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : conversationError ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-red-500">
+                <p className="font-medium">Gagal memuat percakapan</p>
+                <p className="text-sm mt-1">{conversationError?.message || 'Terjadi kesalahan'}</p>
+              </div>
+            </div>
+          ) : conversationDetail ? (
+            <>
+              {/* Chat Header */}
+              <CardHeader className="border-b flex-none">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg">{conversationDetail.conversation.company_name}</CardTitle>
+                    <p className="text-sm text-gray-500 mt-1">{conversationDetail.conversation.subject}</p>
+                  </div>
+                  <div className="flex gap-2 items-start">
+                    <Badge
+                      variant="outline"
+                      className={cn('px-3 py-1', categoryConfig[conversationDetail.conversation.category]?.color)}
+                    >
+                      {categoryConfig[conversationDetail.conversation.category]?.label || conversationDetail.conversation.category}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={cn('px-3 py-1', statusConfig[conversationDetail.conversation.status]?.color)}
+                    >
+                      {statusConfig[conversationDetail.conversation.status]?.label || conversationDetail.conversation.status}
+                    </Badge>
+
+                    {(conversationDetail.conversation.status === 'open' || conversationDetail.conversation.status === 'in_progress') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          updateStatusMutation.mutate({
+                            conversationId: conversationDetail.conversation.id,
+                            status: 'closed',
+                          });
+                        }}
+                        disabled={updateStatusMutation.isPending}
+                        className="text-xs"
+                      >
+                        {updateStatusMutation.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <XCircle className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Tutup
+                      </Button>
+                    )}
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(
+                            `/api/v1/admin/chat/conversations/${conversationDetail.conversation.id}/pdf`,
+                            {
+                              headers: {
+                                Authorization: `Bearer ${localStorage.getItem('admin_token')}`,
+                              },
+                            }
+                          );
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `conversation_${conversationDetail.conversation.id}_${new Date().toISOString().split('T')[0]}.pdf`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          window.URL.revokeObjectURL(url);
+                          toast({
+                            title: 'Success',
+                            description: 'PDF berhasil diunduh',
+                          });
+                        } catch (error) {
+                          ErrorLogger.error('Support', 'Failed to download PDF', error);
+                          toast({
+                            title: 'Error',
+                            description: 'Gagal mengunduh PDF',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      PDF
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+
+              {/* Messages */}
+              <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
+                {!conversationDetail?.messages || conversationDetail.messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                    <MessageCircle className="h-12 w-12 mb-2 opacity-20" />
+                    <p className="text-sm">Belum ada pesan. Kirim pesan pertama Anda!</p>
+                  </div>
+                ) : (
+                  conversationDetail.messages.map((msg: ChatMessage) => {
+                    const hasAttachment = msg.attachment_url?.Valid && msg.attachment_url?.String;
+                    const isImage = msg.attachment_type?.String === 'image';
+                    const isAudio = msg.attachment_type?.String === 'audio';
+
+                    let attachmentURL = '';
+                    if (hasAttachment && msg.attachment_url) {
+                      const urlString = msg.attachment_url.String || '';
+                      attachmentURL = urlString.replace('/uploads/chat/', '/docs/chat/');
+                      if (!attachmentURL.startsWith('/docs/') && !attachmentURL.startsWith('http')) {
+                        attachmentURL = '/docs/chat/' + urlString.split('/').pop();
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className={cn('flex', msg.sender_type === 'admin' ? 'justify-end' : 'justify-start')}
+                      >
+                        <div
+                          className={cn(
+                            'max-w-[70%] rounded-lg p-3 shadow-sm',
+                            msg.sender_type === 'admin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium">{msg.sender_name}</span>
+                            <span
+                              className={cn(
+                                'text-xs',
+                                msg.sender_type === 'admin' ? 'text-blue-100' : 'text-gray-500'
+                              )}
+                            >
+                              {formatDate(msg.created_at)}
+                            </span>
+                          </div>
+
+                          {/* Attachment Display */}
+                          {hasAttachment && (
+                            <div className="mb-2">
+                              {isImage && (
+                                <img
+                                  src={`http://localhost:8081${attachmentURL}`}
+                                  alt={msg.attachment_filename?.String || 'Image'}
+                                  className="max-w-full rounded cursor-pointer hover:opacity-90"
+                                  onClick={() => window.open(`http://localhost:8081${attachmentURL}`, '_blank')}
+                                />
+                              )}
+                              {isAudio && (
+                                <audio
+                                  controls
+                                  className="max-w-full"
+                                  src={`http://localhost:8081${attachmentURL}`}
+                                >
+                                  Your browser does not support the audio element.
+                                </audio>
+                              )}
+                            </div>
+                          )}
+
+                          {msg.message && <p className="text-sm whitespace-pre-wrap">{msg.message}</p>}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </CardContent>
+
+              {/* Message Input */}
+              <div className="border-t p-4 flex-none">
+                {conversationDetail.conversation.status === 'closed' ? (
+                  <div className="flex items-center justify-center py-3 px-4 bg-gray-50 rounded-lg">
+                    <X className="h-4 w-4 mr-2 text-gray-500" />
+                    <span className="text-sm text-gray-600">Percakapan ini sudah ditutup</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* File Preview */}
+                    {selectedFile && (
+                      <div className="flex items-center gap-2 p-2 bg-gray-50 rounded border">
+                        {previewURL && selectedFile.type.startsWith('image/') ? (
+                          <img src={previewURL} alt="Preview" className="h-16 w-16 object-cover rounded" />
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Mic className="h-4 w-4" />
+                            <span className="text-sm">{selectedFile.name}</span>
+                          </div>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={cancelAttachment} className="ml-auto">
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Input Area */}
+                    <div className="flex gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                        className="hidden"
+                        onChange={handleFileSelect}
+                      />
+
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading || sendMessageMutation.isPending || isRecording}
+                        title="Lampirkan gambar"
+                      >
+                        <ImageIcon className="h-4 w-4" />
+                      </Button>
+
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={isRecording ? 'destructive' : 'outline'}
+                        onClick={isRecording ? stopRecording : startRecording}
+                        disabled={isUploading || sendMessageMutation.isPending}
+                        title={isRecording ? 'Hentikan rekaman' : 'Rekam suara'}
+                      >
+                        <Mic className="h-4 w-4" />
+                      </Button>
+
+                      <Input
+                        placeholder={isRecording ? 'Merekam...' : 'Ketik pesan...'}
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                        disabled={sendMessageMutation.isPending || isUploading || isRecording}
+                        className="flex-1"
+                      />
+
+                      <Button
+                        onClick={handleSendMessage}
+                        disabled={(!newMessage.trim() && !selectedFile) || sendMessageMutation.isPending || isUploading}
+                      >
+                        {sendMessageMutation.isPending || isUploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          'Kirim'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+        </Card>
+      </div>
     </div>
   );
 }
