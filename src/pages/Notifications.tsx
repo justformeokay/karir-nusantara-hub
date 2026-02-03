@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, Edit2, Trash2, Eye, Bell, Flag, Info } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Edit2, Trash2, Eye, Bell, Flag, Info, Loader2, RefreshCcw } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,12 +30,18 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { mockNotifications } from '@/lib/mock-data';
-import { Notification } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-
-type NotificationType = 'notification' | 'banner' | 'information';
+import {
+  Announcement,
+  AnnouncementType,
+  TargetAudience,
+  getAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
+  toggleAnnouncementStatus,
+  deleteAnnouncement,
+} from '@/api/announcements';
 
 const typeIcons = {
   notification: Bell,
@@ -43,64 +49,180 @@ const typeIcons = {
   information: Info,
 };
 
+const typeLabels = {
+  notification: 'Notification',
+  banner: 'Banner',
+  information: 'Information',
+};
+
+const audienceLabels: Record<TargetAudience, string> = {
+  all: 'Everyone',
+  company: 'Companies',
+  candidate: 'Candidates',
+  partner: 'Partners',
+};
+
 export default function Notifications() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const [selectedType, setSelectedType] = useState<NotificationType>('notification');
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [selectedType, setSelectedType] = useState<AnnouncementType>('notification');
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
-  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+    perPage: 20,
+  });
   const [formData, setFormData] = useState({
     title: '',
     content: '',
-    targetAudience: 'all' as Notification['targetAudience'],
-    type: 'notification' as NotificationType,
+    targetAudience: 'all' as TargetAudience,
+    type: 'notification' as AnnouncementType,
+    priority: 5,
   });
   const { toast } = useToast();
 
-  const filteredNotifications = notifications.filter(n => n.type === selectedType);
+  // Fetch announcements from API
+  const fetchAnnouncements = useCallback(async (type?: AnnouncementType, page: number = 1) => {
+    setIsLoading(true);
+    try {
+      const response = await getAnnouncements({
+        type: type,
+        page: page,
+        per_page: pagination.perPage,
+      });
+      
+      if (response.success) {
+        setAnnouncements(response.data.data || []);
+        setPagination({
+          currentPage: response.data.pagination.current_page,
+          totalPages: response.data.pagination.total_pages,
+          totalItems: response.data.pagination.total_items,
+          perPage: response.data.pagination.per_page,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch announcements:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load announcements. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [pagination.perPage, toast]);
 
-  const handleToggleActive = (notification: Notification) => {
-    setNotifications(prev => prev.map(n => 
-      n.id === notification.id ? { ...n, isActive: !n.isActive } : n
-    ));
-    toast({
-      title: notification.isActive ? 'Deactivated' : 'Activated',
-      description: `"${notification.title}" has been ${notification.isActive ? 'deactivated' : 'activated'}.`,
-    });
+  // Load announcements when component mounts or type changes
+  useEffect(() => {
+    fetchAnnouncements(selectedType);
+  }, [selectedType, fetchAnnouncements]);
+
+  // Filter announcements by selected type
+  const filteredAnnouncements = announcements.filter(a => a.type === selectedType);
+
+  const handleToggleActive = async (announcement: Announcement) => {
+    setTogglingId(announcement.id);
+    try {
+      const response = await toggleAnnouncementStatus(announcement.id, !announcement.is_active);
+      if (response.success) {
+        setAnnouncements(prev => prev.map(a => 
+          a.id === announcement.id ? { ...a, is_active: !a.is_active } : a
+        ));
+        toast({
+          title: announcement.is_active ? 'Deactivated' : 'Activated',
+          description: `"${announcement.title}" has been ${announcement.is_active ? 'deactivated' : 'activated'}.`,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle announcement status:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update status. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setTogglingId(null);
+    }
   };
 
-  const handleSave = () => {
-    if (selectedNotification) {
-      // Edit existing
-      setNotifications(prev => prev.map(n => 
-        n.id === selectedNotification.id 
-          ? { ...n, ...formData }
-          : n
-      ));
-      toast({ title: 'Updated', description: 'Notification has been updated.' });
-    } else {
-      // Create new
-      const newNotification: Notification = {
-        id: `notification-${Date.now()}`,
-        ...formData,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      };
-      setNotifications(prev => [newNotification, ...prev]);
-      toast({ title: 'Created', description: 'New notification has been created.' });
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      if (selectedAnnouncement) {
+        // Update existing
+        const response = await updateAnnouncement(selectedAnnouncement.id, {
+          title: formData.title,
+          content: formData.content,
+          type: formData.type,
+          target_audience: formData.targetAudience,
+          priority: formData.priority,
+        });
+        
+        if (response.success) {
+          setAnnouncements(prev => prev.map(a => 
+            a.id === selectedAnnouncement.id ? response.data : a
+          ));
+          toast({ title: 'Updated', description: 'Announcement has been updated.' });
+        }
+      } else {
+        // Create new
+        const response = await createAnnouncement({
+          title: formData.title,
+          content: formData.content,
+          type: formData.type,
+          target_audience: formData.targetAudience,
+          is_active: true,
+          priority: formData.priority,
+        });
+        
+        if (response.success) {
+          setAnnouncements(prev => [response.data, ...prev]);
+          toast({ title: 'Created', description: 'New announcement has been created.' });
+        }
+      }
+      setEditDialogOpen(false);
+      resetForm();
+    } catch (error) {
+      console.error('Failed to save announcement:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save announcement. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
     }
-    setEditDialogOpen(false);
-    resetForm();
   };
 
-  const handleDelete = () => {
-    if (selectedNotification) {
-      setNotifications(prev => prev.filter(n => n.id !== selectedNotification.id));
-      toast({ title: 'Deleted', description: 'Notification has been deleted.', variant: 'destructive' });
+  const handleDelete = async () => {
+    if (!selectedAnnouncement) return;
+    
+    setIsDeleting(true);
+    try {
+      const response = await deleteAnnouncement(selectedAnnouncement.id);
+      if (response.success) {
+        setAnnouncements(prev => prev.filter(a => a.id !== selectedAnnouncement.id));
+        toast({ title: 'Deleted', description: 'Announcement has been deleted.', variant: 'destructive' });
+      }
+    } catch (error) {
+      console.error('Failed to delete announcement:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete announcement. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setSelectedAnnouncement(null);
     }
-    setDeleteDialogOpen(false);
-    setSelectedNotification(null);
   };
 
   const resetForm = () => {
@@ -109,18 +231,20 @@ export default function Notifications() {
       content: '',
       targetAudience: 'all',
       type: selectedType,
+      priority: 5,
     });
-    setSelectedNotification(null);
+    setSelectedAnnouncement(null);
   };
 
-  const openEditDialog = (notification?: Notification) => {
-    if (notification) {
-      setSelectedNotification(notification);
+  const openEditDialog = (announcement?: Announcement) => {
+    if (announcement) {
+      setSelectedAnnouncement(announcement);
       setFormData({
-        title: notification.title,
-        content: notification.content,
-        targetAudience: notification.targetAudience,
-        type: notification.type,
+        title: announcement.title,
+        content: announcement.content,
+        targetAudience: announcement.target_audience,
+        type: announcement.type,
+        priority: announcement.priority || 5,
       });
     } else {
       resetForm();
@@ -137,14 +261,20 @@ export default function Notifications() {
         title="Notifications & Banners"
         description="Manage platform-wide announcements and information"
         actions={
-          <Button onClick={() => openEditDialog()}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create New
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => fetchAnnouncements(selectedType)} disabled={isLoading}>
+              <RefreshCcw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => openEditDialog()}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create New
+            </Button>
+          </div>
         }
       />
 
-      <Tabs value={selectedType} onValueChange={(v) => setSelectedType(v as NotificationType)}>
+      <Tabs value={selectedType} onValueChange={(v) => setSelectedType(v as AnnouncementType)}>
         <TabsList>
           <TabsTrigger value="notification" className="gap-2">
             <Bell className="h-4 w-4" />
@@ -161,73 +291,120 @@ export default function Notifications() {
         </TabsList>
 
         <TabsContent value={selectedType} className="mt-6">
-          <div className="grid gap-4">
-            {filteredNotifications.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <TypeIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No {selectedType}s found</p>
-                  <Button variant="outline" className="mt-4" onClick={() => openEditDialog()}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create your first {selectedType}
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              filteredNotifications.map((notification) => (
-                <Card key={notification.id}>
-                  <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-                    <div className="space-y-1">
-                      <CardTitle className="text-base font-medium flex items-center gap-2">
-                        {notification.title}
-                        {notification.isActive && (
-                          <Badge className="bg-emerald-100 text-emerald-700">Active</Badge>
-                        )}
-                      </CardTitle>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Badge variant="outline" className="capitalize">
-                          {notification.targetAudience === 'all' ? 'Everyone' : notification.targetAudience}
-                        </Badge>
-                        <span>•</span>
-                        <span>{format(new Date(notification.createdAt), 'dd MMM yyyy')}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={notification.isActive}
-                        onCheckedChange={() => handleToggleActive(notification)}
-                      />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                      {notification.content}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => {
-                        setSelectedNotification(notification);
-                        setPreviewDialogOpen(true);
-                      }}>
-                        <Eye className="h-4 w-4 mr-2" />
-                        Preview
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openEditDialog(notification)}>
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => {
-                        setSelectedNotification(notification);
-                        setDeleteDialogOpen(true);
-                      }}>
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </Button>
-                    </div>
+          {isLoading ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Loader2 className="h-12 w-12 mx-auto animate-spin text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Loading {typeLabels[selectedType]}s...</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {filteredAnnouncements.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <TypeIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">No {typeLabels[selectedType]}s found</p>
+                    <Button variant="outline" className="mt-4" onClick={() => openEditDialog()}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create your first {typeLabels[selectedType].toLowerCase()}
+                    </Button>
                   </CardContent>
                 </Card>
-              ))
-            )}
-          </div>
+              ) : (
+                <>
+                  {filteredAnnouncements.map((announcement) => (
+                    <Card key={announcement.id}>
+                      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                        <div className="space-y-1">
+                          <CardTitle className="text-base font-medium flex items-center gap-2">
+                            {announcement.title}
+                            {announcement.is_active && (
+                              <Badge className="bg-emerald-100 text-emerald-700">Active</Badge>
+                            )}
+                          </CardTitle>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge variant="outline" className="capitalize">
+                              {audienceLabels[announcement.target_audience]}
+                            </Badge>
+                            <span>•</span>
+                            <span>Priority: {announcement.priority}</span>
+                            <span>•</span>
+                            <span>{format(new Date(announcement.created_at), 'dd MMM yyyy')}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={announcement.is_active}
+                            onCheckedChange={() => handleToggleActive(announcement)}
+                            disabled={togglingId === announcement.id}
+                          />
+                          {togglingId === announcement.id && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+                          {announcement.content}
+                        </p>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => {
+                            setSelectedAnnouncement(announcement);
+                            setPreviewDialogOpen(true);
+                          }}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            Preview
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(announcement)}>
+                            <Edit2 className="h-4 w-4 mr-2" />
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="text-destructive hover:bg-destructive hover:text-destructive-foreground" 
+                            onClick={() => {
+                              setSelectedAnnouncement(announcement);
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  
+                  {/* Pagination Info */}
+                  {pagination.totalPages > 1 && (
+                    <div className="flex justify-center items-center gap-4 mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pagination.currentPage <= 1 || isLoading}
+                        onClick={() => fetchAnnouncements(selectedType, pagination.currentPage - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {pagination.currentPage} of {pagination.totalPages} ({pagination.totalItems} total)
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pagination.currentPage >= pagination.totalPages || isLoading}
+                        onClick={() => fetchAnnouncements(selectedType, pagination.currentPage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -235,9 +412,9 @@ export default function Notifications() {
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{selectedNotification ? 'Edit' : 'Create'} {formData.type}</DialogTitle>
+            <DialogTitle>{selectedAnnouncement ? 'Edit' : 'Create'} {typeLabels[formData.type]}</DialogTitle>
             <DialogDescription>
-              {selectedNotification ? 'Update the details below' : 'Fill in the details to create a new announcement'}
+              {selectedAnnouncement ? 'Update the details below' : 'Fill in the details to create a new announcement'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -260,43 +437,60 @@ export default function Notifications() {
                 rows={4}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Target Audience</Label>
-              <Select 
-                value={formData.targetAudience} 
-                onValueChange={(v) => setFormData(prev => ({ ...prev, targetAudience: v as Notification['targetAudience'] }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Everyone</SelectItem>
-                  <SelectItem value="company">Companies Only</SelectItem>
-                  <SelectItem value="candidate">Candidates Only</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Target Audience</Label>
+                <Select 
+                  value={formData.targetAudience} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, targetAudience: v as TargetAudience }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Everyone</SelectItem>
+                    <SelectItem value="company">Companies Only</SelectItem>
+                    <SelectItem value="candidate">Candidates Only</SelectItem>
+                    <SelectItem value="partner">Partners Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select 
+                  value={formData.type} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, type: v as AnnouncementType }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="notification">Notification</SelectItem>
+                    <SelectItem value="banner">Banner</SelectItem>
+                    <SelectItem value="information">Information</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
-              <Label>Type</Label>
-              <Select 
-                value={formData.type} 
-                onValueChange={(v) => setFormData(prev => ({ ...prev, type: v as NotificationType }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="notification">Notification</SelectItem>
-                  <SelectItem value="banner">Banner</SelectItem>
-                  <SelectItem value="information">Information</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="priority">Priority (1-10, higher = more important)</Label>
+              <Input
+                id="priority"
+                type="number"
+                min="1"
+                max="10"
+                value={formData.priority}
+                onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 5 }))}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.title || !formData.content}>
-              {selectedNotification ? 'Update' : 'Create'}
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={!formData.title || !formData.content || isSaving}>
+              {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {selectedAnnouncement ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -308,10 +502,24 @@ export default function Notifications() {
           <DialogHeader>
             <DialogTitle>Preview</DialogTitle>
           </DialogHeader>
-          {selectedNotification && (
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <h3 className="font-semibold mb-2">{selectedNotification.title}</h3>
-              <p className="text-sm text-muted-foreground">{selectedNotification.content}</p>
+          {selectedAnnouncement && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg border border-border bg-card">
+                <div className="flex items-center gap-2 mb-2">
+                  {selectedAnnouncement.type === 'notification' && <Bell className="h-5 w-5 text-blue-500" />}
+                  {selectedAnnouncement.type === 'banner' && <Flag className="h-5 w-5 text-orange-500" />}
+                  {selectedAnnouncement.type === 'information' && <Info className="h-5 w-5 text-green-500" />}
+                  <h3 className="font-semibold">{selectedAnnouncement.title}</h3>
+                </div>
+                <p className="text-sm text-muted-foreground">{selectedAnnouncement.content}</p>
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p><strong>Type:</strong> {typeLabels[selectedAnnouncement.type]}</p>
+                <p><strong>Target:</strong> {audienceLabels[selectedAnnouncement.target_audience]}</p>
+                <p><strong>Priority:</strong> {selectedAnnouncement.priority}</p>
+                <p><strong>Status:</strong> {selectedAnnouncement.is_active ? 'Active' : 'Inactive'}</p>
+                <p><strong>Created:</strong> {format(new Date(selectedAnnouncement.created_at), 'dd MMM yyyy HH:mm')}</p>
+              </div>
             </div>
           )}
         </DialogContent>
@@ -321,9 +529,9 @@ export default function Notifications() {
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        title="Delete Notification"
-        description={`Are you sure you want to delete "${selectedNotification?.title}"? This action cannot be undone.`}
-        confirmLabel="Delete"
+        title="Delete Announcement"
+        description={`Are you sure you want to delete "${selectedAnnouncement?.title}"? This action cannot be undone.`}
+        confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
         onConfirm={handleDelete}
         variant="destructive"
       />
