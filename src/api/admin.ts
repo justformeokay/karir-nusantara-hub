@@ -783,25 +783,36 @@ export async function processPayment(
 // PARTNER MANAGEMENT API
 // ============================================
 
-// Partner types from API
+// Partner types from API (matches actual backend response)
 export interface PartnerFromAPI {
   id: number;
-  hash_id: string;
+  hash_id: string; // Will be generated from id in the frontend
   email: string;
   full_name: string;
   phone?: string;
   referral_code: string;
+  commission_rate?: number;
+  // Bank info can be flat or nested depending on context
   bank_name?: string;
   bank_account_number?: string;
   bank_account_name?: string;
+  bank_info?: {
+    bank_name?: string;
+    bank_account_number?: string;
+    bank_account_holder?: string;
+    is_verified?: boolean;
+  };
   status: 'pending' | 'active' | 'suspended' | 'rejected' | 'inactive';
-  is_email_verified: boolean;
+  is_email_verified?: boolean;
+  // Stats fields (map from API field names)
+  total_referrals?: number;
   referred_companies_count: number;
   total_commission: number;
   available_balance: number;
+  paid_amount?: number;
   paid_out: number;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export interface PartnerDetailFromAPI extends PartnerFromAPI {
@@ -841,7 +852,41 @@ export interface PayoutHistoryItem {
   completed_at?: string;
 }
 
-// Partner list response
+// Partner list response (API returns nested structure)
+interface PartnersAPIResponse {
+  success: boolean;
+  data: {
+    partners: Array<{
+      id: number;
+      full_name: string;
+      email: string;
+      phone?: string;
+      referral_code: string;
+      commission_rate?: number;
+      status: string;
+      total_referrals?: number;
+      total_commission?: number;
+      available_balance?: number;
+      paid_amount?: number;
+      bank_info?: {
+        bank_name?: string;
+        bank_account_number?: string;
+        bank_account_holder?: string;
+        is_verified?: boolean;
+      };
+      created_at: string;
+      updated_at?: string;
+    }>;
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      total_pages: number;
+    };
+  };
+}
+
+// Normalized response for frontend use
 export interface PartnersResponse {
   success: boolean;
   message: string;
@@ -873,16 +918,55 @@ export async function getPartners(filter: PartnerFilter = {}): Promise<PartnersR
     
     ErrorLogger.info('getPartners', 'Fetching partners', { filter });
     
-    const result = await api.get<PartnersResponse>(
+    const result = await api.get<PartnersAPIResponse>(
       `/api/v1/admin/partners?${queryParams.toString()}`
     );
     
+    // Transform and normalize partner data
+    const partners: PartnerFromAPI[] = (result.data?.partners || []).map((p) => ({
+      id: p.id,
+      hash_id: String(p.id), // Use numeric ID as string for API calls
+      email: p.email,
+      full_name: p.full_name,
+      phone: p.phone,
+      referral_code: p.referral_code,
+      commission_rate: p.commission_rate,
+      // Flatten bank_info if present
+      bank_name: p.bank_info?.bank_name,
+      bank_account_number: p.bank_info?.bank_account_number,
+      bank_account_name: p.bank_info?.bank_account_holder,
+      bank_info: p.bank_info,
+      status: p.status as PartnerFromAPI['status'],
+      is_email_verified: false,
+      total_referrals: p.total_referrals,
+      referred_companies_count: p.total_referrals || 0,
+      total_commission: p.total_commission || 0,
+      available_balance: p.available_balance || 0,
+      paid_amount: p.paid_amount,
+      paid_out: p.paid_amount || 0,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    }));
+    
+    // Transform the nested API response to flat structure for frontend
+    const normalizedResponse: PartnersResponse = {
+      success: result.success,
+      message: '',
+      data: partners,
+      meta: {
+        page: result.data?.pagination?.page || 1,
+        per_page: result.data?.pagination?.limit || 10,
+        total_items: result.data?.pagination?.total || 0,
+        total_pages: result.data?.pagination?.total_pages || 1,
+      },
+    };
+    
     ErrorLogger.info('getPartners', 'Partners fetched successfully', {
-      count: result.data?.length || 0,
-      total: result.meta?.total_items || 0
+      count: normalizedResponse.data?.length || 0,
+      total: normalizedResponse.meta?.total_items || 0
     });
     
-    return result;
+    return normalizedResponse;
   } catch (error) {
     ErrorLogger.error('getPartners', 'Failed to fetch partners', error);
     throw error;
@@ -1069,6 +1153,22 @@ export interface ReferralStatsResponse {
     total_paid_out: number;
     pending_payouts_amount: number;
     pending_payouts_count: number;
+    partners_with_balance?: number;
+  };
+}
+
+// API response structure (actual backend response)
+interface ReferralStatsAPIResponse {
+  success: boolean;
+  data: {
+    total_partners: number;
+    active_partners: number;
+    pending_partners: number;
+    total_referred_companies: number;
+    total_commission_generated: number;
+    pending_payouts: number;
+    total_paid_out: number;
+    partners_with_balance: number;
   };
 }
 
@@ -1110,13 +1210,31 @@ export async function getReferralStats(): Promise<ReferralStatsResponse> {
   try {
     ErrorLogger.info('getReferralStats', 'Fetching referral stats');
     
-    const result = await api.get<ReferralStatsResponse>(
+    const result = await api.get<ReferralStatsAPIResponse>(
       `/api/v1/admin/referrals/stats`
     );
     
+    // Normalize API response to frontend expected structure
+    const normalizedResponse: ReferralStatsResponse = {
+      success: result.success,
+      message: '',
+      data: {
+        total_partners: result.data?.total_partners || 0,
+        active_partners: result.data?.active_partners || 0,
+        pending_partners: result.data?.pending_partners || 0,
+        suspended_partners: 0, // Not provided by API, calculate if needed
+        total_referred_companies: result.data?.total_referred_companies || 0,
+        total_commission_generated: result.data?.total_commission_generated || 0,
+        total_paid_out: result.data?.total_paid_out || 0,
+        pending_payouts_amount: result.data?.pending_payouts || 0,
+        pending_payouts_count: 0, // Not provided by API
+        partners_with_balance: result.data?.partners_with_balance || 0,
+      },
+    };
+    
     ErrorLogger.info('getReferralStats', 'Referral stats fetched successfully');
     
-    return result;
+    return normalizedResponse;
   } catch (error) {
     ErrorLogger.error('getReferralStats', 'Failed to fetch referral stats', error);
     throw error;
