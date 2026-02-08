@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Table,
   TableBody,
@@ -38,25 +37,56 @@ import {
   Clock,
   TrendingUp,
   Eye,
-  Upload,
   DollarSign,
+  Loader2,
+  Plus,
 } from 'lucide-react';
-import { mockCommissionPayouts, mockReferralPartners, mockReferralStats } from '@/lib/mock-data';
-import { CommissionPayout, ReferralPartner, PaginationState } from '@/types';
+import { 
+  getPayouts, 
+  getPayoutStats, 
+  getPartnerBalances, 
+  processPartnerPayout,
+  createPayout,
+  PayoutFromAPI,
+  PartnerBalanceFromAPI,
+} from '@/api/admin';
+import { PaginationState } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
 const ITEMS_PER_PAGE = 15;
+
+interface PayoutStats {
+  total_payouts: number;
+  pending_payouts: number;
+  completed_payouts: number;
+  total_amount_paid: number;
+  pending_amount: number;
+}
 
 export default function CommissionPayouts() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [payouts, setPayouts] = useState<CommissionPayout[]>(mockCommissionPayouts);
-  const [selectedPayout, setSelectedPayout] = useState<CommissionPayout | null>(null);
+  const [payouts, setPayouts] = useState<PayoutFromAPI[]>([]);
+  const [partnerBalances, setPartnerBalances] = useState<PartnerBalanceFromAPI[]>([]);
+  const [selectedPayout, setSelectedPayout] = useState<PayoutFromAPI | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isPayoutDialogOpen, setIsPayoutDialogOpen] = useState(false);
+  const [isCreatePayoutOpen, setIsCreatePayoutOpen] = useState(false);
   const [payoutNotes, setPayoutNotes] = useState('');
-  const [confirmPayout, setConfirmPayout] = useState<CommissionPayout | null>(null);
+  const [transferRef, setTransferRef] = useState('');
+  const [confirmPayout, setConfirmPayout] = useState<PayoutFromAPI | null>(null);
+  const [selectedPartner, setSelectedPartner] = useState<PartnerBalanceFromAPI | null>(null);
+  const [newPayoutAmount, setNewPayoutAmount] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [stats, setStats] = useState<PayoutStats>({
+    total_payouts: 0,
+    pending_payouts: 0,
+    completed_payouts: 0,
+    total_amount_paid: 0,
+    pending_amount: 0,
+  });
   
   const [pagination, setPagination] = useState<PaginationState>({
     currentPage: 1,
@@ -65,90 +95,148 @@ export default function CommissionPayouts() {
     itemsPerPage: ITEMS_PER_PAGE,
   });
 
-  // Get partner balances with available balance > 0
-  const partnerBalances = useMemo(() => {
-    return mockReferralPartners
-      .filter(p => p.availableBalance > 0)
-      .map(p => ({
-        ...p,
-        pendingPayout: payouts.find(
-          payout => payout.referralPartnerId === p.id && payout.status === 'pending'
-        ),
+  // Fetch payouts from API
+  const fetchPayouts = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await getPayouts({
+        page: pagination.currentPage,
+        page_size: ITEMS_PER_PAGE,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+      });
+      
+      setPayouts(Array.isArray(response.data) ? response.data : []);
+      setPagination((prev) => ({
+        ...prev,
+        totalItems: response.meta?.total_items || 0,
+        totalPages: response.meta?.total_pages || 1,
       }));
-  }, [payouts]);
-
-  const filteredPayouts = useMemo(() => {
-    let result = payouts;
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      result = result.filter((p) =>
-        p.referralPartnerName.toLowerCase().includes(term)
-      );
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch payouts',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
     }
+  }, [pagination.currentPage, statusFilter, toast]);
 
-    if (statusFilter !== 'all') {
-      result = result.filter((p) => p.status === statusFilter);
+  // Fetch stats from API
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await getPayoutStats();
+      setStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
     }
+  }, []);
 
-    return result;
-  }, [payouts, searchTerm, statusFilter]);
+  // Fetch partner balances
+  const fetchBalances = useCallback(async () => {
+    try {
+      const response = await getPartnerBalances({ min_balance: 1 });
+      setPartnerBalances(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error('Failed to fetch balances:', error);
+    }
+  }, []);
 
-  const paginatedPayouts = useMemo(() => {
-    const totalItems = filteredPayouts.length;
-    const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-    const startIndex = (pagination.currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
+  useEffect(() => {
+    fetchPayouts();
+  }, [fetchPayouts]);
 
-    setPagination((prev) => ({
-      ...prev,
-      totalItems,
-      totalPages,
-    }));
-
-    return filteredPayouts.slice(startIndex, endIndex);
-  }, [filteredPayouts, pagination.currentPage]);
+  useEffect(() => {
+    fetchStats();
+    fetchBalances();
+  }, [fetchStats, fetchBalances]);
 
   const handlePageChange = (page: number) => {
     setPagination((prev) => ({ ...prev, currentPage: page }));
   };
 
-  const handleViewDetail = (payout: CommissionPayout) => {
+  const handleViewDetail = (payout: PayoutFromAPI) => {
     setSelectedPayout(payout);
     setIsDetailOpen(true);
   };
 
-  const handleMarkAsPaid = (payout: CommissionPayout) => {
+  const handleMarkAsPaid = (payout: PayoutFromAPI) => {
     setConfirmPayout(payout);
     setPayoutNotes('');
+    setTransferRef('');
     setIsPayoutDialogOpen(true);
   };
 
-  const handleConfirmPayout = () => {
+  const handleConfirmPayout = async () => {
     if (!confirmPayout) return;
 
-    setPayouts((prev) =>
-      prev.map((p) =>
-        p.id === confirmPayout.id
-          ? {
-              ...p,
-              status: 'paid',
-              paidAt: new Date().toISOString(),
-              notes: payoutNotes || 'Pembayaran telah ditransfer',
-              payoutProofUrl: 'https://picsum.photos/400/300?random=' + Date.now(),
-            }
-          : p
-      )
-    );
+    setIsProcessing(true);
+    try {
+      await processPartnerPayout(confirmPayout.id, 'complete', transferRef, payoutNotes);
+      
+      toast({
+        title: 'Payout Completed',
+        description: `${formatCurrency(confirmPayout.amount)} has been marked as paid to ${confirmPayout.partner_name}.`,
+      });
 
-    toast({
-      title: 'Payout Marked as Paid',
-      description: `${formatCurrency(confirmPayout.amount)} has been marked as paid to ${confirmPayout.referralPartnerName}.`,
-    });
+      // Refresh data
+      fetchPayouts();
+      fetchStats();
+      fetchBalances();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to process payout',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+      setIsPayoutDialogOpen(false);
+      setConfirmPayout(null);
+      setPayoutNotes('');
+      setTransferRef('');
+    }
+  };
 
-    setIsPayoutDialogOpen(false);
-    setConfirmPayout(null);
-    setPayoutNotes('');
+  const handleCreatePayout = async () => {
+    if (!selectedPartner || !newPayoutAmount) return;
+
+    const amount = parseFloat(newPayoutAmount);
+    if (isNaN(amount) || amount <= 0 || amount > selectedPartner.available_balance) {
+      toast({
+        title: 'Invalid Amount',
+        description: 'Please enter a valid amount within available balance',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await createPayout(selectedPartner.partner_hash_id, amount, payoutNotes);
+      
+      toast({
+        title: 'Payout Created',
+        description: `Payout of ${formatCurrency(amount)} created for ${selectedPartner.partner_name}.`,
+      });
+
+      // Refresh data
+      fetchPayouts();
+      fetchStats();
+      fetchBalances();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to create payout',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+      setIsCreatePayoutOpen(false);
+      setSelectedPartner(null);
+      setNewPayoutAmount('');
+      setPayoutNotes('');
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -167,14 +255,6 @@ export default function CommissionPayouts() {
     });
   };
 
-  const pendingPayoutsTotal = payouts
-    .filter(p => p.status === 'pending')
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  const paidPayoutsTotal = payouts
-    .filter(p => p.status === 'paid')
-    .reduce((sum, p) => sum + p.amount, 0);
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -185,18 +265,18 @@ export default function CommissionPayouts() {
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Total Commission Generated"
-          value={formatCurrency(mockReferralStats.totalCommissionGenerated)}
+          title="Total Payouts"
+          value={stats.total_payouts}
           icon={TrendingUp}
         />
         <StatCard
           title="Pending Payouts"
-          value={formatCurrency(pendingPayoutsTotal)}
+          value={formatCurrency(stats.pending_amount)}
           icon={Clock}
         />
         <StatCard
           title="Total Paid Out"
-          value={formatCurrency(paidPayoutsTotal)}
+          value={formatCurrency(stats.total_amount_paid)}
           icon={CheckCircle}
         />
         <StatCard
@@ -208,39 +288,58 @@ export default function CommissionPayouts() {
 
       {/* Partner Balances Summary */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Partner Balances</CardTitle>
+          <Button 
+            size="sm" 
+            onClick={() => setIsCreatePayoutOpen(true)}
+            disabled={partnerBalances.length === 0}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create Payout
+          </Button>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {partnerBalances.slice(0, 6).map((partner) => (
-              <div
-                key={partner.id}
-                className="flex items-center justify-between p-4 border rounded-lg"
-              >
-                <div>
-                  <p className="font-medium">{partner.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Available: {formatCurrency(partner.availableBalance)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-muted-foreground">
-                    Total Paid: {formatCurrency(partner.totalPaid)}
-                  </p>
-                  {partner.lastPayoutDate && (
-                    <p className="text-xs text-muted-foreground">
-                      Last: {formatDate(partner.lastPayoutDate)}
-                    </p>
-                  )}
-                </div>
+          {partnerBalances.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No partners with available balance</p>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {partnerBalances.slice(0, 6).map((partner) => (
+                  <div
+                    key={partner.partner_hash_id}
+                    className="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-muted/50"
+                    onClick={() => {
+                      setSelectedPartner(partner);
+                      setNewPayoutAmount(String(partner.available_balance));
+                      setIsCreatePayoutOpen(true);
+                    }}
+                  >
+                    <div>
+                      <p className="font-medium">{partner.partner_name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Available: {formatCurrency(partner.available_balance)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">
+                        Total Paid: {formatCurrency(partner.paid_out)}
+                      </p>
+                      {partner.bank_name && (
+                        <p className="text-xs text-muted-foreground">
+                          {partner.bank_name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          {partnerBalances.length > 6 && (
-            <p className="text-sm text-muted-foreground mt-4 text-center">
-              +{partnerBalances.length - 6} more partners with available balance
-            </p>
+              {partnerBalances.length > 6 && (
+                <p className="text-sm text-muted-foreground mt-4 text-center">
+                  +{partnerBalances.length - 6} more partners with available balance
+                </p>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -262,14 +361,18 @@ export default function CommissionPayouts() {
                   className="pl-9"
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={(value) => {
+                setStatusFilter(value);
+                setPagination(prev => ({ ...prev, currentPage: 1 }));
+              }}>
                 <SelectTrigger className="w-[150px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -282,32 +385,45 @@ export default function CommissionPayouts() {
                 <TableRow>
                   <TableHead>Partner Name</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Bank Info</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Requested Date</TableHead>
-                  <TableHead>Paid Date</TableHead>
+                  <TableHead>Completed Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedPayouts.length === 0 ? (
+                {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ) : payouts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No payouts found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginatedPayouts.map((payout) => (
+                  payouts.map((payout) => (
                     <TableRow key={payout.id}>
-                      <TableCell className="font-medium">{payout.referralPartnerName}</TableCell>
+                      <TableCell className="font-medium">{payout.partner_name}</TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(payout.amount)}
                       </TableCell>
                       <TableCell>
+                        <div className="text-sm">
+                          <p>{payout.bank_name}</p>
+                          <p className="text-muted-foreground text-xs">{payout.bank_account_number}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <StatusBadge status={payout.status} />
                       </TableCell>
-                      <TableCell>{formatDate(payout.requestedAt)}</TableCell>
+                      <TableCell>{formatDate(payout.requested_at)}</TableCell>
                       <TableCell>
-                        {payout.paidAt ? formatDate(payout.paidAt) : '-'}
+                        {payout.completed_at ? formatDate(payout.completed_at) : '-'}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -324,7 +440,7 @@ export default function CommissionPayouts() {
                               variant="ghost"
                               size="icon"
                               onClick={() => handleMarkAsPaid(payout)}
-                              title="Mark as Paid"
+                              title="Mark as Completed"
                             >
                               <DollarSign className="h-4 w-4 text-emerald-600" />
                             </Button>
@@ -353,7 +469,7 @@ export default function CommissionPayouts() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Partner Name</p>
-                  <p className="font-medium">{selectedPayout.referralPartnerName}</p>
+                  <p className="font-medium">{selectedPayout.partner_name}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Amount</p>
@@ -365,31 +481,45 @@ export default function CommissionPayouts() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Requested Date</p>
-                  <p className="font-medium">{formatDate(selectedPayout.requestedAt)}</p>
+                  <p className="font-medium">{formatDate(selectedPayout.requested_at)}</p>
                 </div>
-                {selectedPayout.paidAt && (
+                {selectedPayout.completed_at && (
                   <div>
-                    <p className="text-sm text-muted-foreground">Paid Date</p>
-                    <p className="font-medium">{formatDate(selectedPayout.paidAt)}</p>
+                    <p className="text-sm text-muted-foreground">Completed Date</p>
+                    <p className="font-medium">{formatDate(selectedPayout.completed_at)}</p>
                   </div>
                 )}
               </div>
+
+              <div className="border-t pt-4">
+                <p className="text-sm text-muted-foreground mb-2">Bank Information</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Bank</p>
+                    <p className="font-medium">{selectedPayout.bank_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Account Number</p>
+                    <p className="font-medium">{selectedPayout.bank_account_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Account Name</p>
+                    <p className="font-medium">{selectedPayout.bank_account_name}</p>
+                  </div>
+                </div>
+              </div>
+
+              {selectedPayout.transfer_ref && (
+                <div className="border-t pt-4">
+                  <p className="text-sm text-muted-foreground">Transfer Reference</p>
+                  <p className="mt-1 font-mono">{selectedPayout.transfer_ref}</p>
+                </div>
+              )}
 
               {selectedPayout.notes && (
                 <div className="border-t pt-4">
                   <p className="text-sm text-muted-foreground">Notes</p>
                   <p className="mt-1">{selectedPayout.notes}</p>
-                </div>
-              )}
-
-              {selectedPayout.payoutProofUrl && (
-                <div className="border-t pt-4">
-                  <p className="text-sm text-muted-foreground mb-2">Payout Proof</p>
-                  <img
-                    src={selectedPayout.payoutProofUrl}
-                    alt="Payout proof"
-                    className="w-full rounded-lg border"
-                  />
                 </div>
               )}
             </div>
@@ -401,20 +531,34 @@ export default function CommissionPayouts() {
       <Dialog open={isPayoutDialogOpen} onOpenChange={setIsPayoutDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Payout</DialogTitle>
+            <DialogTitle>Complete Payout</DialogTitle>
           </DialogHeader>
           {confirmPayout && (
             <div className="space-y-4">
               <div className="p-4 bg-muted rounded-lg">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center mb-2">
                   <div>
-                    <p className="font-medium">{confirmPayout.referralPartnerName}</p>
+                    <p className="font-medium">{confirmPayout.partner_name}</p>
                     <p className="text-sm text-muted-foreground">Payout Amount</p>
                   </div>
                   <p className="text-2xl font-bold text-primary">
                     {formatCurrency(confirmPayout.amount)}
                   </p>
                 </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>Bank: {confirmPayout.bank_name}</p>
+                  <p>Account: {confirmPayout.bank_account_number} ({confirmPayout.bank_account_name})</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="transfer-ref">Transfer Reference</Label>
+                <Input
+                  id="transfer-ref"
+                  placeholder="Enter transfer reference number..."
+                  value={transferRef}
+                  onChange={(e) => setTransferRef(e.target.value)}
+                />
               </div>
 
               <div className="space-y-2">
@@ -426,22 +570,120 @@ export default function CommissionPayouts() {
                   onChange={(e) => setPayoutNotes(e.target.value)}
                 />
               </div>
-
-              <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                <Upload className="h-4 w-4 text-amber-600" />
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  Upload payout proof after completing the transfer
-                </p>
-              </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPayoutDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsPayoutDialogOpen(false)} disabled={isProcessing}>
               Cancel
             </Button>
-            <Button onClick={handleConfirmPayout}>
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Mark as Paid
+            <Button onClick={handleConfirmPayout} disabled={isProcessing}>
+              {isProcessing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Mark as Completed
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Payout Dialog */}
+      <Dialog open={isCreatePayoutOpen} onOpenChange={setIsCreatePayoutOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Payout</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Select Partner</Label>
+              <Select 
+                value={selectedPartner?.partner_hash_id || ''} 
+                onValueChange={(value) => {
+                  const partner = partnerBalances.find(p => p.partner_hash_id === value);
+                  setSelectedPartner(partner || null);
+                  if (partner) {
+                    setNewPayoutAmount(String(partner.available_balance));
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a partner" />
+                </SelectTrigger>
+                <SelectContent>
+                  {partnerBalances.map((partner) => (
+                    <SelectItem key={partner.partner_hash_id} value={partner.partner_hash_id}>
+                      {partner.partner_name} - {formatCurrency(partner.available_balance)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {selectedPartner && (
+              <>
+                <div className="p-4 bg-muted rounded-lg">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Available Balance</p>
+                      <p className="font-bold text-lg">{formatCurrency(selectedPartner.available_balance)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Total Paid</p>
+                      <p className="font-medium">{formatCurrency(selectedPartner.paid_out)}</p>
+                    </div>
+                  </div>
+                  {selectedPartner.bank_name && (
+                    <div className="mt-2 pt-2 border-t text-sm">
+                      <p className="text-muted-foreground">Bank: {selectedPartner.bank_name}</p>
+                      <p className="text-muted-foreground">Account: {selectedPartner.bank_account_number}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="amount">Payout Amount</Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    placeholder="Enter amount"
+                    value={newPayoutAmount}
+                    onChange={(e) => setNewPayoutAmount(e.target.value)}
+                    max={selectedPartner.available_balance}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="create-notes">Notes (Optional)</Label>
+                  <Textarea
+                    id="create-notes"
+                    placeholder="Add notes..."
+                    value={payoutNotes}
+                    onChange={(e) => setPayoutNotes(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsCreatePayoutOpen(false);
+              setSelectedPartner(null);
+              setNewPayoutAmount('');
+              setPayoutNotes('');
+            }} disabled={isProcessing}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreatePayout} 
+              disabled={isProcessing || !selectedPartner || !newPayoutAmount}
+            >
+              {isProcessing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Create Payout
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,18 +18,36 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Search, Eye, Building2, Users, Wallet, TrendingUp } from 'lucide-react';
-import { mockReferredCompanies, mockCommissionTransactions, mockReferralStats } from '@/lib/mock-data';
-import { ReferredCompany, CommissionTransaction, PaginationState } from '@/types';
+import { Search, Eye, Building2, Users, Wallet, TrendingUp, Loader2 } from 'lucide-react';
+import { getReferredCompanies, getReferralStats, ReferredCompanyDetail } from '@/api/admin';
+import { PaginationState } from '@/types';
 import { StatCard } from '@/components/ui/stat-card';
+import { useToast } from '@/hooks/use-toast';
 
 const ITEMS_PER_PAGE = 15;
 
+interface ReferralStatsData {
+  total_partners: number;
+  active_partners: number;
+  total_referred_companies: number;
+  total_commission_generated: number;
+  total_paid_out: number;
+}
+
 export default function ReferredCompanies() {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  const [companies] = useState<ReferredCompany[]>(mockReferredCompanies);
-  const [selectedCompany, setSelectedCompany] = useState<ReferredCompany | null>(null);
+  const [companies, setCompanies] = useState<ReferredCompanyDetail[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<ReferredCompanyDetail | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<ReferralStatsData>({
+    total_partners: 0,
+    active_partners: 0,
+    total_referred_companies: 0,
+    total_commission_generated: 0,
+    total_paid_out: 0,
+  });
   
   const [pagination, setPagination] = useState<PaginationState>({
     currentPage: 1,
@@ -38,45 +56,64 @@ export default function ReferredCompanies() {
     itemsPerPage: ITEMS_PER_PAGE,
   });
 
-  const filteredCompanies = useMemo(() => {
-    if (!searchTerm) return companies;
+  // Fetch referred companies from API
+  const fetchCompanies = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await getReferredCompanies({
+        page: pagination.currentPage,
+        page_size: ITEMS_PER_PAGE,
+        search: searchTerm || undefined,
+      });
+      
+      setCompanies(Array.isArray(response.data) ? response.data : []);
+      setPagination((prev) => ({
+        ...prev,
+        totalItems: response.meta?.total_items || 0,
+        totalPages: response.meta?.total_pages || 1,
+      }));
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch referred companies',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [pagination.currentPage, searchTerm, toast]);
 
-    const term = searchTerm.toLowerCase();
-    return companies.filter(
-      (c) =>
-        c.companyName.toLowerCase().includes(term) ||
-        c.referralPartnerName.toLowerCase().includes(term) ||
-        c.referralCode.toLowerCase().includes(term)
-    );
-  }, [companies, searchTerm]);
+  // Fetch stats from API
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await getReferralStats();
+      setStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
+    }
+  }, []);
 
-  const paginatedCompanies = useMemo(() => {
-    const totalItems = filteredCompanies.length;
-    const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-    const startIndex = (pagination.currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
 
-    setPagination((prev) => ({
-      ...prev,
-      totalItems,
-      totalPages,
-    }));
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
-    return filteredCompanies.slice(startIndex, endIndex);
-  }, [filteredCompanies, pagination.currentPage]);
-
-  const companyTransactions = useMemo(() => {
-    if (!selectedCompany) return [];
-    return mockCommissionTransactions.filter(
-      (t) => t.companyId === selectedCompany.companyId
-    );
-  }, [selectedCompany]);
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPagination(prev => ({ ...prev, currentPage: 1 }));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const handlePageChange = (page: number) => {
     setPagination((prev) => ({ ...prev, currentPage: page }));
   };
 
-  const handleViewHistory = (company: ReferredCompany) => {
+  const handleViewHistory = (company: ReferredCompanyDetail) => {
     setSelectedCompany(company);
     setIsHistoryOpen(true);
   };
@@ -97,8 +134,8 @@ export default function ReferredCompanies() {
     });
   };
 
-  const totalRevenue = companies.reduce((sum, c) => sum + c.totalRevenueGenerated, 0);
-  const totalCommission = companies.reduce((sum, c) => sum + c.totalCommission, 0);
+  const totalRevenue = companies.reduce((sum, c) => sum + c.total_revenue, 0);
+  const totalCommission = companies.reduce((sum, c) => sum + c.total_commission, 0);
 
   return (
     <div className="space-y-6">
@@ -111,12 +148,12 @@ export default function ReferredCompanies() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Referred"
-          value={mockReferralStats.totalReferredCompanies}
+          value={stats.total_referred_companies}
           icon={Building2}
         />
         <StatCard
           title="Active Partners"
-          value={mockReferralStats.activePartners}
+          value={stats.active_partners}
           icon={Users}
         />
         <StatCard
@@ -125,7 +162,7 @@ export default function ReferredCompanies() {
           icon={Wallet}
         />
         <StatCard
-          title="Total Commission (40%)"
+          title="Total Commission"
           value={formatCurrency(totalCommission)}
           icon={TrendingUp}
         />
@@ -160,41 +197,47 @@ export default function ReferredCompanies() {
                   <TableHead>Registration Date</TableHead>
                   <TableHead className="text-center">Transactions</TableHead>
                   <TableHead className="text-right">Revenue Generated</TableHead>
-                  <TableHead className="text-right">Commission (40%)</TableHead>
+                  <TableHead className="text-right">Commission</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedCompanies.length === 0 ? (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ) : companies.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No referred companies found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginatedCompanies.map((company) => (
-                    <TableRow key={company.id}>
-                      <TableCell className="font-medium">{company.companyName}</TableCell>
-                      <TableCell>{company.referralPartnerName}</TableCell>
+                  companies.map((company) => (
+                    <TableRow key={company.referral_id}>
+                      <TableCell className="font-medium">{company.company_name}</TableCell>
+                      <TableCell>{company.partner_name}</TableCell>
                       <TableCell>
                         <code className="bg-muted px-2 py-0.5 rounded text-sm">
-                          {company.referralCode}
+                          {company.referral_code}
                         </code>
                       </TableCell>
-                      <TableCell>{formatDate(company.registrationDate)}</TableCell>
-                      <TableCell className="text-center">{company.totalTransactions}</TableCell>
+                      <TableCell>{formatDate(company.registered_at)}</TableCell>
+                      <TableCell className="text-center">{company.total_transactions}</TableCell>
                       <TableCell className="text-right font-medium">
-                        {formatCurrency(company.totalRevenueGenerated)}
+                        {formatCurrency(company.total_revenue)}
                       </TableCell>
                       <TableCell className="text-right font-medium text-primary">
-                        {formatCurrency(company.totalCommission)}
+                        {formatCurrency(company.total_commission)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleViewHistory(company)}
-                          title="View Billing History"
+                          title="View Details"
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -210,11 +253,11 @@ export default function ReferredCompanies() {
         </CardContent>
       </Card>
 
-      {/* Billing History Sheet */}
+      {/* Detail Sheet */}
       <Sheet open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
         <SheetContent className="w-full sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>Billing History - {selectedCompany?.companyName}</SheetTitle>
+            <SheetTitle>Company Details - {selectedCompany?.company_name}</SheetTitle>
           </SheetHeader>
           <div className="mt-6">
             {/* Company Summary */}
@@ -222,52 +265,34 @@ export default function ReferredCompanies() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">Referral Partner</p>
-                  <p className="font-medium">{selectedCompany.referralPartnerName}</p>
+                  <p className="font-medium">{selectedCompany.partner_name}</p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">Referral Code</p>
-                  <code className="font-medium">{selectedCompany.referralCode}</code>
+                  <code className="font-medium">{selectedCompany.referral_code}</code>
+                </div>
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-sm text-muted-foreground">Company Email</p>
+                  <p className="font-medium text-sm">{selectedCompany.company_email}</p>
+                </div>
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-sm text-muted-foreground">Company Status</p>
+                  <p className="font-medium capitalize">{selectedCompany.company_status}</p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">Total Revenue</p>
-                  <p className="font-bold">{formatCurrency(selectedCompany.totalRevenueGenerated)}</p>
+                  <p className="font-bold">{formatCurrency(selectedCompany.total_revenue)}</p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">Total Commission</p>
-                  <p className="font-bold text-primary">{formatCurrency(selectedCompany.totalCommission)}</p>
+                  <p className="font-bold text-primary">{formatCurrency(selectedCompany.total_commission)}</p>
+                </div>
+                <div className="p-3 bg-muted rounded-lg col-span-2">
+                  <p className="text-sm text-muted-foreground">Registration Date</p>
+                  <p className="font-medium">{formatDate(selectedCompany.registered_at)}</p>
                 </div>
               </div>
             )}
-
-            {/* Transaction List */}
-            <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">Commission Transactions</h4>
-              {companyTransactions.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">No transactions found</p>
-              ) : (
-                companyTransactions.map((transaction) => (
-                  <div
-                    key={transaction.id}
-                    className="flex items-center justify-between p-4 border rounded-lg"
-                  >
-                    <div>
-                      <p className="font-medium">Transaction #{transaction.id.split('-')[1]}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatDate(transaction.createdAt)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">
-                        Amount: {formatCurrency(transaction.transactionAmount)}
-                      </p>
-                      <p className="font-bold text-primary">
-                        Commission: {formatCurrency(transaction.commissionAmount)}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
           </div>
         </SheetContent>
       </Sheet>

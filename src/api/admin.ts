@@ -778,3 +778,459 @@ export async function processPayment(
     throw error;
   }
 }
+
+// ============================================
+// PARTNER MANAGEMENT API
+// ============================================
+
+// Partner types from API
+export interface PartnerFromAPI {
+  id: number;
+  hash_id: string;
+  email: string;
+  full_name: string;
+  phone?: string;
+  referral_code: string;
+  bank_name?: string;
+  bank_account_number?: string;
+  bank_account_name?: string;
+  status: 'pending' | 'active' | 'suspended';
+  is_email_verified: boolean;
+  referred_companies_count: number;
+  total_commission: number;
+  available_balance: number;
+  paid_out: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PartnerDetailFromAPI extends PartnerFromAPI {
+  referred_companies: ReferredCompanyFromAPI[];
+  commission_history: CommissionHistoryItem[];
+  payout_history: PayoutHistoryItem[];
+}
+
+export interface ReferredCompanyFromAPI {
+  company_id: number;
+  company_hash_id: string;
+  company_name: string;
+  company_email: string;
+  company_status: string;
+  registered_at: string;
+  total_transactions: number;
+  total_commission_generated: number;
+}
+
+export interface CommissionHistoryItem {
+  id: number;
+  payment_id: number;
+  company_name: string;
+  transaction_amount: number;
+  commission_rate: number;
+  commission_amount: number;
+  created_at: string;
+}
+
+export interface PayoutHistoryItem {
+  id: number;
+  amount: number;
+  status: string;
+  transfer_ref?: string;
+  notes?: string;
+  requested_at: string;
+  completed_at?: string;
+}
+
+// Partner list response
+export interface PartnersResponse {
+  success: boolean;
+  message: string;
+  data: PartnerFromAPI[];
+  meta: PaginationMeta;
+}
+
+export interface PartnerDetailResponse {
+  success: boolean;
+  message: string;
+  data: PartnerDetailFromAPI;
+}
+
+export interface PartnerFilter {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  search?: string;
+}
+
+// Get all partners with pagination and filters
+export async function getPartners(filter: PartnerFilter = {}): Promise<PartnersResponse> {
+  try {
+    const queryParams = new URLSearchParams();
+    if (filter.page) queryParams.append('page', String(filter.page));
+    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.status && filter.status !== 'all') queryParams.append('status', filter.status);
+    if (filter.search) queryParams.append('search', filter.search);
+    
+    ErrorLogger.info('getPartners', 'Fetching partners', { filter });
+    
+    const result = await api.get<PartnersResponse>(
+      `/api/v1/admin/partners?${queryParams.toString()}`
+    );
+    
+    ErrorLogger.info('getPartners', 'Partners fetched successfully', {
+      count: result.data?.length || 0,
+      total: result.meta?.total_items || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPartners', 'Failed to fetch partners', error);
+    throw error;
+  }
+}
+
+// Get partner detail
+export async function getPartnerById(hashId: string): Promise<PartnerDetailResponse> {
+  try {
+    ErrorLogger.info('getPartnerById', 'Fetching partner detail', { hashId });
+    
+    const result = await api.get<PartnerDetailResponse>(
+      `/api/v1/admin/partners/${hashId}`
+    );
+    
+    ErrorLogger.info('getPartnerById', 'Partner detail fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPartnerById', 'Failed to fetch partner detail', error);
+    throw error;
+  }
+}
+
+// Update partner status
+export async function updatePartnerStatus(
+  hashId: string,
+  status: 'active' | 'suspended',
+  reason?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('updatePartnerStatus', 'Updating partner status', { hashId, status });
+    
+    const result = await api.patch<{ success: boolean; message: string }>(
+      `/api/v1/admin/partners/${hashId}/status`,
+      { status, reason }
+    );
+    
+    ErrorLogger.info('updatePartnerStatus', 'Partner status updated successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('updatePartnerStatus', 'Failed to update partner status', error);
+    throw error;
+  }
+}
+
+// Approve pending partner
+export async function approvePartner(
+  hashId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('approvePartner', 'Approving partner', { hashId });
+    
+    const result = await api.post<{ success: boolean; message: string }>(
+      `/api/v1/admin/partners/${hashId}/approve`,
+      {}
+    );
+    
+    ErrorLogger.info('approvePartner', 'Partner approved successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('approvePartner', 'Failed to approve partner', error);
+    throw error;
+  }
+}
+
+// ============================================
+// PARTNER REFERRAL API
+// ============================================
+
+export interface ReferredCompanyDetail {
+  referral_id: number;
+  company_id: number;
+  company_hash_id: string;
+  company_name: string;
+  company_email: string;
+  company_status: string;
+  partner_id: number;
+  partner_hash_id: string;
+  partner_name: string;
+  partner_email: string;
+  referral_code: string;
+  registered_at: string;
+  total_transactions: number;
+  total_revenue: number;
+  total_commission: number;
+}
+
+export interface ReferredCompaniesResponse {
+  success: boolean;
+  message: string;
+  data: ReferredCompanyDetail[];
+  meta: PaginationMeta;
+}
+
+export interface ReferralStatsResponse {
+  success: boolean;
+  message: string;
+  data: {
+    total_partners: number;
+    active_partners: number;
+    pending_partners: number;
+    suspended_partners: number;
+    total_referred_companies: number;
+    total_commission_generated: number;
+    total_paid_out: number;
+    pending_payouts_amount: number;
+    pending_payouts_count: number;
+  };
+}
+
+export interface ReferralFilter {
+  page?: number;
+  page_size?: number;
+  partner_id?: string;
+  search?: string;
+}
+
+// Get referred companies
+export async function getReferredCompanies(filter: ReferralFilter = {}): Promise<ReferredCompaniesResponse> {
+  try {
+    const queryParams = new URLSearchParams();
+    if (filter.page) queryParams.append('page', String(filter.page));
+    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.partner_id) queryParams.append('partner_id', filter.partner_id);
+    if (filter.search) queryParams.append('search', filter.search);
+    
+    ErrorLogger.info('getReferredCompanies', 'Fetching referred companies', { filter });
+    
+    const result = await api.get<ReferredCompaniesResponse>(
+      `/api/v1/admin/referrals/companies?${queryParams.toString()}`
+    );
+    
+    ErrorLogger.info('getReferredCompanies', 'Referred companies fetched successfully', {
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getReferredCompanies', 'Failed to fetch referred companies', error);
+    throw error;
+  }
+}
+
+// Get referral stats
+export async function getReferralStats(): Promise<ReferralStatsResponse> {
+  try {
+    ErrorLogger.info('getReferralStats', 'Fetching referral stats');
+    
+    const result = await api.get<ReferralStatsResponse>(
+      `/api/v1/admin/referrals/stats`
+    );
+    
+    ErrorLogger.info('getReferralStats', 'Referral stats fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getReferralStats', 'Failed to fetch referral stats', error);
+    throw error;
+  }
+}
+
+// ============================================
+// PARTNER PAYOUT API
+// ============================================
+
+export interface PayoutFromAPI {
+  id: number;
+  partner_id: number;
+  partner_hash_id: string;
+  partner_name: string;
+  partner_email: string;
+  bank_name: string;
+  bank_account_number: string;
+  bank_account_name: string;
+  amount: number;
+  status: 'pending' | 'completed' | 'failed';
+  transfer_ref?: string;
+  notes?: string;
+  requested_at: string;
+  completed_at?: string;
+  processed_by?: number;
+}
+
+export interface PayoutsResponse {
+  success: boolean;
+  message: string;
+  data: PayoutFromAPI[];
+  meta: PaginationMeta;
+}
+
+export interface PayoutStatsResponse {
+  success: boolean;
+  message: string;
+  data: {
+    total_payouts: number;
+    pending_payouts: number;
+    completed_payouts: number;
+    total_amount_paid: number;
+    pending_amount: number;
+  };
+}
+
+export interface PartnerBalanceFromAPI {
+  partner_id: number;
+  partner_hash_id: string;
+  partner_name: string;
+  partner_email: string;
+  bank_name?: string;
+  bank_account_number?: string;
+  bank_account_name?: string;
+  total_commission: number;
+  paid_out: number;
+  available_balance: number;
+}
+
+export interface PartnerBalancesResponse {
+  success: boolean;
+  message: string;
+  data: PartnerBalanceFromAPI[];
+  meta: PaginationMeta;
+}
+
+export interface PayoutFilter {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  partner_id?: string;
+}
+
+// Get all payouts
+export async function getPayouts(filter: PayoutFilter = {}): Promise<PayoutsResponse> {
+  try {
+    const queryParams = new URLSearchParams();
+    if (filter.page) queryParams.append('page', String(filter.page));
+    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.status && filter.status !== 'all') queryParams.append('status', filter.status);
+    if (filter.partner_id) queryParams.append('partner_id', filter.partner_id);
+    
+    ErrorLogger.info('getPayouts', 'Fetching payouts', { filter });
+    
+    const result = await api.get<PayoutsResponse>(
+      `/api/v1/admin/payouts?${queryParams.toString()}`
+    );
+    
+    ErrorLogger.info('getPayouts', 'Payouts fetched successfully', {
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPayouts', 'Failed to fetch payouts', error);
+    throw error;
+  }
+}
+
+// Get payout stats
+export async function getPayoutStats(): Promise<PayoutStatsResponse> {
+  try {
+    ErrorLogger.info('getPayoutStats', 'Fetching payout stats');
+    
+    const result = await api.get<PayoutStatsResponse>(
+      `/api/v1/admin/payouts/stats`
+    );
+    
+    ErrorLogger.info('getPayoutStats', 'Payout stats fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPayoutStats', 'Failed to fetch payout stats', error);
+    throw error;
+  }
+}
+
+// Get partner balances
+export async function getPartnerBalances(filter: { 
+  page?: number; 
+  page_size?: number; 
+  min_balance?: number;
+} = {}): Promise<PartnerBalancesResponse> {
+  try {
+    const queryParams = new URLSearchParams();
+    if (filter.page) queryParams.append('page', String(filter.page));
+    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.min_balance) queryParams.append('min_balance', String(filter.min_balance));
+    
+    ErrorLogger.info('getPartnerBalances', 'Fetching partner balances', { filter });
+    
+    const result = await api.get<PartnerBalancesResponse>(
+      `/api/v1/admin/payouts/balances?${queryParams.toString()}`
+    );
+    
+    ErrorLogger.info('getPartnerBalances', 'Partner balances fetched successfully', {
+      count: result.data?.length || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPartnerBalances', 'Failed to fetch partner balances', error);
+    throw error;
+  }
+}
+
+// Create payout
+export async function createPayout(
+  partnerHashId: string,
+  amount: number,
+  notes?: string
+): Promise<{ success: boolean; message: string; data?: PayoutFromAPI }> {
+  try {
+    ErrorLogger.info('createPayout', 'Creating payout', { partnerHashId, amount });
+    
+    const result = await api.post<{ success: boolean; message: string; data?: PayoutFromAPI }>(
+      `/api/v1/admin/payouts`,
+      { partner_id: partnerHashId, amount, notes }
+    );
+    
+    ErrorLogger.info('createPayout', 'Payout created successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('createPayout', 'Failed to create payout', error);
+    throw error;
+  }
+}
+
+// Process payout (mark as completed/failed)
+export async function processPartnerPayout(
+  payoutId: number,
+  action: 'complete' | 'fail',
+  transferRef?: string,
+  notes?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('processPartnerPayout', 'Processing payout', { payoutId, action });
+    
+    const result = await api.post<{ success: boolean; message: string }>(
+      `/api/v1/admin/payouts/${payoutId}/process`,
+      { action, transfer_ref: transferRef, notes }
+    );
+    
+    ErrorLogger.info('processPartnerPayout', 'Payout processed successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('processPartnerPayout', 'Failed to process payout', error);
+    throw error;
+  }
+}
