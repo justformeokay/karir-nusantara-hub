@@ -131,11 +131,12 @@ export class ApiClient {
     return this.handleResponse<T>(response);
   }
 
-  async delete<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+  async delete<T>(endpoint: string, options?: RequestOptions & { data?: unknown }): Promise<T> {
     const url = this.buildUrl(endpoint, options?.params);
     const response = await fetch(url, {
       method: 'DELETE',
       headers: this.getHeaders(),
+      body: options?.data ? JSON.stringify(options.data) : undefined,
       ...options,
     });
     return this.handleResponse<T>(response);

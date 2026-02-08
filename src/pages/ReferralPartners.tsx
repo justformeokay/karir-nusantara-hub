@@ -4,6 +4,8 @@ import { StatCard } from '@/components/ui/stat-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { DataTablePagination } from '@/components/ui/data-table-pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -27,6 +29,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -34,6 +37,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { 
   Search, 
   Users, 
@@ -47,6 +57,10 @@ import {
   Link,
   Clock,
   Loader2,
+  MoreHorizontal,
+  Pencil,
+  XCircle,
+  Trash2,
 } from 'lucide-react';
 import { 
   getPartners, 
@@ -54,9 +68,13 @@ import {
   getReferralStats, 
   updatePartnerStatus, 
   approvePartner,
+  editPartner,
+  rejectPartner,
+  deletePartner,
   PartnerFromAPI,
   PartnerDetailFromAPI,
   CommissionHistoryItem,
+  EditPartnerRequest,
 } from '@/api/admin';
 import { PaginationState } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -92,9 +110,22 @@ export default function ReferralPartners() {
     total_commission_generated: 0,
   });
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'suspend' | 'activate' | 'approve';
+    type: 'suspend' | 'activate' | 'approve' | 'delete';
     partner: PartnerFromAPI;
   } | null>(null);
+  
+  // Edit dialog state
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingPartner, setEditingPartner] = useState<PartnerFromAPI | null>(null);
+  const [editForm, setEditForm] = useState<EditPartnerRequest>({});
+  
+  // Reject dialog state
+  const [isRejectOpen, setIsRejectOpen] = useState(false);
+  const [rejectingPartner, setRejectingPartner] = useState<PartnerFromAPI | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  
+  // Delete dialog state
+  const [deleteReason, setDeleteReason] = useState('');
   
   const [pagination, setPagination] = useState<PaginationState>({
     currentPage: 1,
@@ -217,6 +248,13 @@ export default function ReferralPartners() {
           title: 'Partner Approved',
           description: `${confirmAction.partner.full_name} has been approved.`,
         });
+      } else if (confirmAction.type === 'delete') {
+        await deletePartner(confirmAction.partner.hash_id, deleteReason || undefined);
+        toast({
+          title: 'Partner Deleted',
+          description: `${confirmAction.partner.full_name} has been deleted.`,
+        });
+        setDeleteReason('');
       } else {
         const newStatus = confirmAction.type === 'suspend' ? 'suspended' : 'active';
         await updatePartnerStatus(confirmAction.partner.hash_id, newStatus);
@@ -247,6 +285,90 @@ export default function ReferralPartners() {
       title: 'Copied!',
       description: `${label} copied to clipboard.`,
     });
+  };
+
+  // Edit partner handlers
+  const handleOpenEdit = (partner: PartnerFromAPI) => {
+    setEditingPartner(partner);
+    setEditForm({
+      full_name: partner.full_name,
+      phone: partner.phone || '',
+      bank_name: partner.bank_name || '',
+      bank_account_number: partner.bank_account_number || '',
+      bank_account_holder: partner.bank_account_name || '',
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingPartner) return;
+
+    setIsProcessing(true);
+    try {
+      await editPartner(editingPartner.hash_id, editForm);
+      toast({
+        title: 'Partner Updated',
+        description: `${editingPartner.full_name} has been updated.`,
+      });
+      setIsEditOpen(false);
+      setEditingPartner(null);
+      setEditForm({});
+      fetchPartners();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update partner',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Reject partner handlers
+  const handleOpenReject = (partner: PartnerFromAPI) => {
+    setRejectingPartner(partner);
+    setRejectReason('');
+    setIsRejectOpen(true);
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectingPartner || !rejectReason.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please provide a rejection reason',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await rejectPartner(rejectingPartner.hash_id, rejectReason);
+      toast({
+        title: 'Partner Rejected',
+        description: `${rejectingPartner.full_name} has been rejected.`,
+      });
+      setIsRejectOpen(false);
+      setRejectingPartner(null);
+      setRejectReason('');
+      fetchPartners();
+      fetchStats();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to reject partner',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Delete partner handler
+  const handleOpenDelete = (partner: PartnerFromAPI) => {
+    setDeleteReason('');
+    setConfirmAction({ type: 'delete', partner });
   };
 
   const formatCurrency = (amount: number) => {
@@ -330,6 +452,7 @@ export default function ReferralPartners() {
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="suspended">Suspended</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -392,44 +515,72 @@ export default function ReferralPartners() {
                       </TableCell>
                       <TableCell>{formatDate(partner.created_at)}</TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleViewDetail(partner)}
-                            title="View Details"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleViewHistory(partner)}
-                            title="Transaction History"
-                          >
-                            <History className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleStatusAction(partner)}
-                            title={
-                              partner.status === 'pending' 
-                                ? 'Approve' 
-                                : partner.status === 'active' 
-                                  ? 'Suspend' 
-                                  : 'Activate'
-                            }
-                          >
-                            {partner.status === 'pending' ? (
-                              <CheckCircle className="h-4 w-4 text-blue-600" />
-                            ) : partner.status === 'active' ? (
-                              <Ban className="h-4 w-4 text-destructive" />
-                            ) : (
-                              <CheckCircle className="h-4 w-4 text-emerald-600" />
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleViewDetail(partner)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleViewHistory(partner)}>
+                              <History className="h-4 w-4 mr-2" />
+                              Transaction History
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleOpenEdit(partner)}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Edit Partner
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {partner.status === 'pending' && (
+                              <>
+                                <DropdownMenuItem 
+                                  onClick={() => handleStatusAction(partner)}
+                                  className="text-emerald-600"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Approve
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => handleOpenReject(partner)}
+                                  className="text-destructive"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Reject
+                                </DropdownMenuItem>
+                              </>
                             )}
-                          </Button>
-                        </div>
+                            {partner.status === 'active' && (
+                              <DropdownMenuItem 
+                                onClick={() => handleStatusAction(partner)}
+                                className="text-orange-600"
+                              >
+                                <Ban className="h-4 w-4 mr-2" />
+                                Suspend
+                              </DropdownMenuItem>
+                            )}
+                            {(partner.status === 'suspended' || partner.status === 'rejected') && (
+                              <DropdownMenuItem 
+                                onClick={() => handleStatusAction(partner)}
+                                className="text-emerald-600"
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Activate
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                              onClick={() => handleOpenDelete(partner)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete Partner
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))
@@ -586,32 +737,176 @@ export default function ReferralPartners() {
       {/* Confirm Action Dialog */}
       <ConfirmDialog
         open={!!confirmAction}
-        onOpenChange={() => setConfirmAction(null)}
+        onOpenChange={() => {
+          setConfirmAction(null);
+          setDeleteReason('');
+        }}
         title={
           confirmAction?.type === 'approve' 
             ? 'Approve Partner' 
             : confirmAction?.type === 'suspend' 
               ? 'Suspend Partner' 
-              : 'Activate Partner'
+              : confirmAction?.type === 'delete'
+                ? 'Delete Partner'
+                : 'Activate Partner'
         }
         description={
           confirmAction?.type === 'approve'
             ? `Are you sure you want to approve ${confirmAction?.partner.full_name}? They will be able to start earning commissions.`
             : confirmAction?.type === 'suspend'
               ? `Are you sure you want to suspend ${confirmAction?.partner.full_name}? They will no longer earn commissions.`
-              : `Are you sure you want to activate ${confirmAction?.partner.full_name}? They will be able to earn commissions again.`
+              : confirmAction?.type === 'delete'
+                ? `Are you sure you want to delete ${confirmAction?.partner.full_name}? This action cannot be undone.`
+                : `Are you sure you want to activate ${confirmAction?.partner.full_name}? They will be able to earn commissions again.`
         }
         confirmLabel={
           confirmAction?.type === 'approve' 
             ? 'Approve' 
             : confirmAction?.type === 'suspend' 
               ? 'Suspend' 
-              : 'Activate'
+              : confirmAction?.type === 'delete'
+                ? 'Delete'
+                : 'Activate'
         }
         onConfirm={handleConfirmAction}
-        variant={confirmAction?.type === 'suspend' ? 'destructive' : 'default'}
+        variant={confirmAction?.type === 'suspend' || confirmAction?.type === 'delete' ? 'destructive' : 'default'}
         isLoading={isProcessing}
       />
+
+      {/* Edit Partner Dialog */}
+      <Dialog open={isEditOpen} onOpenChange={(open) => {
+        setIsEditOpen(open);
+        if (!open) {
+          setEditingPartner(null);
+          setEditForm({});
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Partner</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-full-name">Full Name</Label>
+              <Input
+                id="edit-full-name"
+                value={editForm.full_name || ''}
+                onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input
+                id="edit-phone"
+                value={editForm.phone || ''}
+                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-commission-rate">Commission Rate (%)</Label>
+              <Input
+                id="edit-commission-rate"
+                type="number"
+                min={0}
+                max={100}
+                value={editForm.commission_rate || ''}
+                onChange={(e) => setEditForm({ ...editForm, commission_rate: parseFloat(e.target.value) || undefined })}
+              />
+            </div>
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium mb-3">Bank Information</p>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-bank-name">Bank Name</Label>
+                  <Input
+                    id="edit-bank-name"
+                    value={editForm.bank_name || ''}
+                    onChange={(e) => setEditForm({ ...editForm, bank_name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-bank-account-number">Account Number</Label>
+                  <Input
+                    id="edit-bank-account-number"
+                    value={editForm.bank_account_number || ''}
+                    onChange={(e) => setEditForm({ ...editForm, bank_account_number: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-bank-account-holder">Account Holder Name</Label>
+                  <Input
+                    id="edit-bank-account-holder"
+                    value={editForm.bank_account_holder || ''}
+                    onChange={(e) => setEditForm({ ...editForm, bank_account_holder: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-notes">Notes</Label>
+              <Textarea
+                id="edit-notes"
+                value={editForm.notes || ''}
+                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                placeholder="Admin notes..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={isProcessing}>
+              {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Partner Dialog */}
+      <Dialog open={isRejectOpen} onOpenChange={(open) => {
+        setIsRejectOpen(open);
+        if (!open) {
+          setRejectingPartner(null);
+          setRejectReason('');
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Partner</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              You are about to reject <strong>{rejectingPartner?.full_name}</strong>'s partner application.
+              Please provide a reason for the rejection.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="reject-reason">Rejection Reason *</Label>
+              <Textarea
+                id="reject-reason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Please provide a reason for rejecting this partner..."
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRejectOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleConfirmReject} 
+              disabled={isProcessing || !rejectReason.trim()}
+            >
+              {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Reject Partner
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

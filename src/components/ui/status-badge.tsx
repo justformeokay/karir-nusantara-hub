@@ -11,6 +11,8 @@ type StatusVariant =
   | 'declined'
   | 'suspended'
   | 'paid'
+  | 'rejected'
+  | 'inactive'
   | 'default';
 
 interface StatusBadgeProps {
@@ -58,6 +60,14 @@ const statusConfig: Record<StatusVariant, { label: string; className: string }> 
   paid: {
     label: 'Paid',
     className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  },
+  rejected: {
+    label: 'Rejected',
+    className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  },
+  inactive: {
+    label: 'Inactive',
+    className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
   },
   default: {
     label: 'Unknown',

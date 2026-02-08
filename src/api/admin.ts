@@ -794,7 +794,7 @@ export interface PartnerFromAPI {
   bank_name?: string;
   bank_account_number?: string;
   bank_account_name?: string;
-  status: 'pending' | 'active' | 'suspended';
+  status: 'pending' | 'active' | 'suspended' | 'rejected' | 'inactive';
   is_email_verified: boolean;
   referred_companies_count: number;
   total_commission: number;
@@ -947,6 +947,82 @@ export async function approvePartner(
     return result;
   } catch (error) {
     ErrorLogger.error('approvePartner', 'Failed to approve partner', error);
+    throw error;
+  }
+}
+
+// Edit partner details
+export interface EditPartnerRequest {
+  full_name?: string;
+  phone?: string;
+  commission_rate?: number;
+  bank_name?: string;
+  bank_account_number?: string;
+  bank_account_holder?: string;
+  notes?: string;
+}
+
+export async function editPartner(
+  hashId: string,
+  data: EditPartnerRequest
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('editPartner', 'Editing partner', { hashId, data });
+    
+    const result = await api.put<{ success: boolean; message: string }>(
+      `/api/v1/admin/partners/${hashId}`,
+      data
+    );
+    
+    ErrorLogger.info('editPartner', 'Partner edited successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('editPartner', 'Failed to edit partner', error);
+    throw error;
+  }
+}
+
+// Reject pending partner
+export async function rejectPartner(
+  hashId: string,
+  reason: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('rejectPartner', 'Rejecting partner', { hashId, reason });
+    
+    const result = await api.post<{ success: boolean; message: string }>(
+      `/api/v1/admin/partners/${hashId}/reject`,
+      { reason }
+    );
+    
+    ErrorLogger.info('rejectPartner', 'Partner rejected successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('rejectPartner', 'Failed to reject partner', error);
+    throw error;
+  }
+}
+
+// Delete (soft-delete) partner
+export async function deletePartner(
+  hashId: string,
+  reason?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('deletePartner', 'Deleting partner', { hashId, reason });
+    
+    const result = await api.delete<{ success: boolean; message: string }>(
+      `/api/v1/admin/partners/${hashId}`,
+      { data: { reason } }
+    );
+    
+    ErrorLogger.info('deletePartner', 'Partner deleted successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('deletePartner', 'Failed to delete partner', error);
     throw error;
   }
 }
