@@ -1179,26 +1179,85 @@ export interface ReferralFilter {
   search?: string;
 }
 
+// Backend API response structure for referred companies
+interface ReferredCompaniesAPIResponse {
+  success: boolean;
+  data: {
+    companies: Array<{
+      id: number;
+      company_id: number;
+      company_name: string;
+      partner_info: {
+        id: number;
+        name: string;
+        referral_code: string;
+      };
+      total_transactions: number;
+      total_revenue_generated: number;
+      total_commission: number;
+      registration_date: string;
+      status: string;
+    }>;
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      total_pages: number;
+    };
+  };
+}
+
 // Get referred companies
 export async function getReferredCompanies(filter: ReferralFilter = {}): Promise<ReferredCompaniesResponse> {
   try {
     const queryParams = new URLSearchParams();
     if (filter.page) queryParams.append('page', String(filter.page));
-    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.page_size) queryParams.append('limit', String(filter.page_size));
     if (filter.partner_id) queryParams.append('partner_id', filter.partner_id);
     if (filter.search) queryParams.append('search', filter.search);
     
     ErrorLogger.info('getReferredCompanies', 'Fetching referred companies', { filter });
     
-    const result = await api.get<ReferredCompaniesResponse>(
+    const result = await api.get<ReferredCompaniesAPIResponse>(
       `/api/v1/admin/referrals/companies?${queryParams.toString()}`
     );
     
+    // Transform API response to frontend expected structure
+    const companies: ReferredCompanyDetail[] = (result.data?.companies || []).map((c) => ({
+      referral_id: c.id,
+      company_id: c.company_id,
+      company_hash_id: String(c.company_id),
+      company_name: c.company_name || '',
+      company_email: '',
+      company_status: c.status || 'pending',
+      partner_id: c.partner_info?.id || 0,
+      partner_hash_id: String(c.partner_info?.id || 0),
+      partner_name: c.partner_info?.name || '',
+      partner_email: '',
+      referral_code: c.partner_info?.referral_code || '',
+      registered_at: c.registration_date || '',
+      total_transactions: c.total_transactions || 0,
+      total_revenue: c.total_revenue_generated || 0,
+      total_commission: c.total_commission || 0,
+    }));
+    
+    const normalizedResponse: ReferredCompaniesResponse = {
+      success: result.success,
+      message: '',
+      data: companies,
+      meta: {
+        page: result.data?.pagination?.page || 1,
+        per_page: result.data?.pagination?.limit || 10,
+        total_items: result.data?.pagination?.total || 0,
+        total_pages: result.data?.pagination?.total_pages || 1,
+      },
+    };
+    
     ErrorLogger.info('getReferredCompanies', 'Referred companies fetched successfully', {
-      count: result.data?.length || 0
+      count: companies.length
     });
     
-    return result;
+    return normalizedResponse;
   } catch (error) {
     ErrorLogger.error('getReferredCompanies', 'Failed to fetch referred companies', error);
     throw error;
