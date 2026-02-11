@@ -1373,21 +1373,55 @@ export async function getPayouts(filter: PayoutFilter = {}): Promise<PayoutsResp
   try {
     const queryParams = new URLSearchParams();
     if (filter.page) queryParams.append('page', String(filter.page));
-    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.page_size) queryParams.append('limit', String(filter.page_size));
     if (filter.status && filter.status !== 'all') queryParams.append('status', filter.status);
     if (filter.partner_id) queryParams.append('partner_id', filter.partner_id);
     
     ErrorLogger.info('getPayouts', 'Fetching payouts', { filter });
     
-    const result = await api.get<PayoutsResponse>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await api.get<any>(
       `/api/v1/admin/payouts?${queryParams.toString()}`
     );
     
+    // Transform nested API response to flat structure
+    const payoutsRaw = result.data?.payouts || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payouts: PayoutFromAPI[] = payoutsRaw.map((p: any) => ({
+      id: p.id,
+      partner_id: p.partner_id,
+      partner_hash_id: String(p.partner_id),
+      partner_name: p.partner_name || '',
+      partner_email: p.partner_email || '',
+      bank_name: p.bank_info?.bank_name || '',
+      bank_account_number: p.bank_info?.bank_account_number || '',
+      bank_account_name: p.bank_info?.bank_account_holder || '',
+      amount: p.amount || 0,
+      status: p.status || 'pending',
+      transfer_ref: p.payout_proof_url || p.transfer_ref,
+      notes: p.notes,
+      requested_at: p.requested_at || '',
+      completed_at: p.paid_at || p.completed_at,
+      processed_by: p.processed_by,
+    }));
+    
+    const normalizedResponse: PayoutsResponse = {
+      success: result.success,
+      message: '',
+      data: payouts,
+      meta: {
+        page: result.data?.pagination?.page || 1,
+        per_page: result.data?.pagination?.limit || 10,
+        total_items: result.data?.pagination?.total || 0,
+        total_pages: result.data?.pagination?.total_pages || 1,
+      },
+    };
+    
     ErrorLogger.info('getPayouts', 'Payouts fetched successfully', {
-      count: result.data?.length || 0
+      count: normalizedResponse.data?.length || 0
     });
     
-    return result;
+    return normalizedResponse;
   } catch (error) {
     ErrorLogger.error('getPayouts', 'Failed to fetch payouts', error);
     throw error;
@@ -1399,13 +1433,27 @@ export async function getPayoutStats(): Promise<PayoutStatsResponse> {
   try {
     ErrorLogger.info('getPayoutStats', 'Fetching payout stats');
     
-    const result = await api.get<PayoutStatsResponse>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await api.get<any>(
       `/api/v1/admin/payouts/stats`
     );
     
+    // Transform API response to frontend expected structure
+    const normalizedResponse: PayoutStatsResponse = {
+      success: result.success,
+      message: '',
+      data: {
+        total_payouts: result.data?.total_payouts || 0,
+        pending_payouts: result.data?.pending_payouts_count || 0,
+        completed_payouts: result.data?.completed_payouts_count || 0,
+        total_amount_paid: result.data?.total_amount_paid || 0,
+        pending_amount: result.data?.pending_amount || 0,
+      },
+    };
+    
     ErrorLogger.info('getPayoutStats', 'Payout stats fetched successfully');
     
-    return result;
+    return normalizedResponse;
   } catch (error) {
     ErrorLogger.error('getPayoutStats', 'Failed to fetch payout stats', error);
     throw error;
@@ -1421,20 +1469,49 @@ export async function getPartnerBalances(filter: {
   try {
     const queryParams = new URLSearchParams();
     if (filter.page) queryParams.append('page', String(filter.page));
-    if (filter.page_size) queryParams.append('page_size', String(filter.page_size));
+    if (filter.page_size) queryParams.append('limit', String(filter.page_size));
     if (filter.min_balance) queryParams.append('min_balance', String(filter.min_balance));
     
     ErrorLogger.info('getPartnerBalances', 'Fetching partner balances', { filter });
     
-    const result = await api.get<PartnerBalancesResponse>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await api.get<any>(
       `/api/v1/admin/payouts/balances?${queryParams.toString()}`
     );
     
+    // Transform nested API response to expected format
+    const partnersRaw = result.data?.partners || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const balances: PartnerBalanceFromAPI[] = partnersRaw.map((p: any) => ({
+      partner_id: p.id,
+      partner_hash_id: String(p.id),
+      partner_name: p.partner_name || '',
+      partner_email: p.email || '',
+      bank_name: p.bank_info?.bank_name || undefined,
+      bank_account_number: p.bank_info?.bank_account_number || undefined,
+      bank_account_name: p.bank_info?.bank_account_holder || undefined,
+      total_commission: p.available_balance + (p.total_paid || 0),
+      paid_out: p.total_paid || 0,
+      available_balance: p.available_balance || 0,
+    }));
+    
+    const normalizedResponse: PartnerBalancesResponse = {
+      success: result.success,
+      message: '',
+      data: balances,
+      meta: {
+        page: result.data?.pagination?.page || 1,
+        per_page: result.data?.pagination?.limit || 10,
+        total_items: result.data?.pagination?.total || 0,
+        total_pages: result.data?.pagination?.total_pages || 1,
+      },
+    };
+    
     ErrorLogger.info('getPartnerBalances', 'Partner balances fetched successfully', {
-      count: result.data?.length || 0
+      count: normalizedResponse.data?.length || 0
     });
     
-    return result;
+    return normalizedResponse;
   } catch (error) {
     ErrorLogger.error('getPartnerBalances', 'Failed to fetch partner balances', error);
     throw error;
@@ -1452,7 +1529,7 @@ export async function createPayout(
     
     const result = await api.post<{ success: boolean; message: string; data?: PayoutFromAPI }>(
       `/api/v1/admin/payouts`,
-      { partner_id: partnerHashId, amount, notes }
+      { partner_id: Number(partnerHashId), amount: Math.round(amount), notes }
     );
     
     ErrorLogger.info('createPayout', 'Payout created successfully');
@@ -1476,7 +1553,7 @@ export async function processPartnerPayout(
     
     const result = await api.post<{ success: boolean; message: string }>(
       `/api/v1/admin/payouts/${payoutId}/process`,
-      { action, transfer_ref: transferRef, notes }
+      { payout_proof_url: transferRef || '', notes }
     );
     
     ErrorLogger.info('processPartnerPayout', 'Payout processed successfully');
