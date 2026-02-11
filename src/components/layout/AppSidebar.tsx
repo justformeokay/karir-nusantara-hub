@@ -10,6 +10,7 @@ import {
   UserPlus,
   Building,
   Wallet,
+  Briefcase,
 } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +34,7 @@ const menuItems = [
   { title: 'Dashboard', url: '/', icon: LayoutDashboard },
   { title: 'Companies', url: '/companies', icon: Building2 },
   { title: 'Job Seekers', url: '/job-seekers', icon: Users },
+  { title: 'Job Management', url: '/jobs', icon: Briefcase },
   { title: 'Support', url: '/support', icon: MessageSquare },
   { title: 'Notifications', url: '/notifications', icon: Bell },
   { title: 'Billing', url: '/billing', icon: CreditCard },

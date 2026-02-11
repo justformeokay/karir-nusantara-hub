@@ -1564,3 +1564,117 @@ export async function processPartnerPayout(
     throw error;
   }
 }
+
+// ============================================
+// JOB MANAGEMENT API
+// ============================================
+
+export interface JobFromAPI {
+  id: number;
+  company_id: number;
+  company_name: string;
+  title: string;
+  slug: string;
+  description: string;
+  requirements?: string;
+  city: string;
+  province: string;
+  is_remote: boolean;
+  job_type: string;
+  experience_level: string;
+  salary_min?: number;
+  salary_max?: number;
+  status: string;
+  admin_status?: string;
+  admin_note?: string;
+  flag_reason?: string;
+  views_count: number;
+  applications_count: number;
+  published_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobsResponse {
+  success: boolean;
+  message: string;
+  data: JobFromAPI[];
+  meta: PaginationMeta;
+}
+
+export interface JobFilter {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  company_id?: number;
+  search?: string;
+}
+
+// Get all jobs with pagination and filters
+export async function getJobs(filter: JobFilter = {}): Promise<JobsResponse> {
+  try {
+    const params: Record<string, string | number> = {};
+    
+    if (filter.page) params.page = filter.page;
+    if (filter.page_size) params.page_size = filter.page_size;
+    if (filter.status) params.status = filter.status;
+    if (filter.company_id) params.company_id = filter.company_id;
+    if (filter.search) params.search = filter.search;
+    
+    ErrorLogger.info('getJobs', 'Fetching jobs', { filter, params });
+    
+    const result = await api.get<JobsResponse>('/api/v1/admin/jobs', { params });
+    
+    ErrorLogger.info('getJobs', 'Jobs fetched successfully', { 
+      count: result.data?.length || 0,
+      total: result.meta?.total_items || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getJobs', 'Failed to fetch jobs', error);
+    throw error;
+  }
+}
+
+// Get job by ID
+export async function getJobByID(id: number): Promise<{ success: boolean; message: string; data: JobFromAPI }> {
+  try {
+    ErrorLogger.info('getJobByID', 'Fetching job detail', { id });
+    
+    const result = await api.get<{ success: boolean; message: string; data: JobFromAPI }>(
+      `/api/v1/admin/jobs/${id}`
+    );
+    
+    ErrorLogger.info('getJobByID', 'Job detail fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getJobByID', 'Failed to fetch job detail', error);
+    throw error;
+  }
+}
+
+// Moderate job (approve, reject, flag)
+export async function moderateJob(
+  id: number,
+  action: 'approve' | 'reject' | 'flag' | 'unflag',
+  note?: string,
+  flagReason?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    ErrorLogger.info('moderateJob', 'Moderating job', { id, action, note, flagReason });
+    
+    const result = await api.post<{ success: boolean; message: string }>(
+      `/api/v1/admin/jobs/${id}/moderate`,
+      { action, note, flag_reason: flagReason }
+    );
+    
+    ErrorLogger.info('moderateJob', 'Job moderated successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('moderateJob', 'Failed to moderate job', error);
+    throw error;
+  }
+}
