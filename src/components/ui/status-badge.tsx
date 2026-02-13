@@ -13,6 +13,7 @@ type StatusVariant =
   | 'paid'
   | 'rejected'
   | 'inactive'
+  | 'deleted'
   | 'default';
 
 interface StatusBadgeProps {
@@ -68,6 +69,10 @@ const statusConfig: Record<StatusVariant, { label: string; className: string }> 
   inactive: {
     label: 'Inactive',
     className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
+  },
+  deleted: {
+    label: 'Deleted',
+    className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   },
   default: {
     label: 'Unknown',

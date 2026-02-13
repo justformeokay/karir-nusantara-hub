@@ -50,7 +50,9 @@ const ITEMS_PER_PAGE = 15;
 function getJobTypeLabel(type: string): string {
   const labels: Record<string, string> = {
     'full-time': 'Full Time',
+    'full_time': 'Full Time',
     'part-time': 'Part Time',
+    'part_time': 'Part Time',
     'contract': 'Contract',
     'internship': 'Magang',
     'freelance': 'Freelance',
@@ -364,7 +366,7 @@ export default function JobManagement() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={job.status} />
+                        <StatusBadge status={job.is_deleted ? 'deleted' : job.status} />
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -444,7 +446,7 @@ export default function JobManagement() {
                   <span>{selectedJob.company_name}</span>
                 </div>
                 <div className="flex flex-wrap gap-2 mb-4">
-                  <StatusBadge status={selectedJob.status} />
+                  <StatusBadge status={selectedJob.is_deleted ? 'deleted' : selectedJob.status} />
                   <Badge variant="outline">{getJobTypeLabel(selectedJob.job_type)}</Badge>
                   {selectedJob.is_remote && <Badge variant="secondary">Remote</Badge>}
                   {selectedJob.flag_reason && (
