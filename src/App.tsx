@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Companies from "./pages/Companies";
 import JobSeekers from "./pages/JobSeekers";
 import JobManagement from "./pages/JobManagement";
+import JobReports from "./pages/JobReports";
 import Support from "./pages/Support";
 import Notifications from "./pages/Notifications";
 import Billing from "./pages/Billing";
@@ -67,6 +68,14 @@ const App = () => (
               element={
                 <AdminLayout>
                   <Support />
+                </AdminLayout>
+              }
+            />
+            <Route
+              path="/job-reports"
+              element={
+                <AdminLayout>
+                  <JobReports />
                 </AdminLayout>
               }
             />

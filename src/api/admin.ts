@@ -1680,3 +1680,185 @@ export async function moderateJob(
     throw error;
   }
 }
+
+// ============================================
+// JOB REPORTS API 
+// ============================================
+
+export type ReportStatus = 'pending' | 'reviewed' | 'dismissed' | 'action_taken';
+export type ReportReason = 'scam' | 'misleading' | 'inappropriate' | 'discriminatory' | 'other';
+
+export interface JobReport {
+  id: number;
+  hash_id: string;
+  job_id: number;
+  user_id: number;
+  reason: ReportReason;
+  description: string;
+  status: ReportStatus;
+  admin_notes: string | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobReportWithDetails extends JobReport {
+  job_title: string;
+  company_id: number;
+  company_name: string;
+  company_hash_id: string;
+  company_status: string;
+  reporter_name: string;
+  reporter_email: string;
+  reviewer_name: string | null;
+  total_reports: number;
+}
+
+export interface JobReportsFilter {
+  status?: ReportStatus;
+  reason?: ReportReason;
+  job_id?: number;
+  page?: number;
+  page_size?: number;
+}
+
+export interface JobReportsResponse {
+  reports: JobReportWithDetails[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface JobReportDetailResponse {
+  report: JobReportWithDetails;
+}
+
+export interface UpdateReportStatusRequest {
+  status: ReportStatus;
+  admin_notes?: string;
+}
+
+export const REPORT_STATUS_CONFIG: Record<ReportStatus, { label: string; color: string }> = {
+  pending: { label: 'Menunggu', color: 'bg-yellow-100 text-yellow-800' },
+  reviewed: { label: 'Ditinjau', color: 'bg-blue-100 text-blue-800' },
+  dismissed: { label: 'Ditolak', color: 'bg-gray-100 text-gray-800' },
+  action_taken: { label: 'Tindakan Diambil', color: 'bg-green-100 text-green-800' },
+};
+
+export const REPORT_REASON_CONFIG: Record<ReportReason, { label: string; color: string }> = {
+  scam: { label: 'Penipuan/Scam', color: 'bg-red-100 text-red-800' },
+  misleading: { label: 'Menyesatkan', color: 'bg-orange-100 text-orange-800' },
+  inappropriate: { label: 'Tidak Pantas', color: 'bg-purple-100 text-purple-800' },
+  discriminatory: { label: 'Diskriminatif', color: 'bg-pink-100 text-pink-800' },
+  other: { label: 'Lainnya', color: 'bg-gray-100 text-gray-800' },
+};
+
+// Get all job reports (admin)
+export async function getJobReports(filter: JobReportsFilter = {}): Promise<JobReportsResponse> {
+  try {
+    const params: Record<string, string | number> = {};
+    if (filter.status) params.status = filter.status;
+    if (filter.reason) params.reason = filter.reason;
+    if (filter.job_id) params.job_id = filter.job_id;
+    if (filter.page) params.page = filter.page;
+    if (filter.page_size) params.limit = filter.page_size;
+    
+    ErrorLogger.info('getJobReports', 'Fetching job reports', { filter, params });
+    
+    const result = await api.get<JobReportsResponse>('/api/v1/admin/job-reports', { params });
+    
+    ErrorLogger.info('getJobReports', 'Job reports fetched successfully', { 
+      count: result.reports?.length || 0,
+      total: result.total || 0
+    });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getJobReports', 'Failed to fetch job reports', error);
+    throw error;
+  }
+}
+
+// Get single job report by ID (admin)
+export async function getJobReport(id: number): Promise<JobReportDetailResponse> {
+  try {
+    ErrorLogger.info('getJobReport', 'Fetching job report detail', { id });
+    
+    const result = await api.get<JobReportDetailResponse>(
+      `/api/v1/admin/job-reports/${id}`
+    );
+    
+    ErrorLogger.info('getJobReport', 'Job report detail fetched successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getJobReport', 'Failed to fetch job report detail', error);
+    throw error;
+  }
+}
+
+// Update job report status (admin)
+export async function updateJobReportStatus(
+  id: number,
+  data: UpdateReportStatusRequest
+): Promise<{ message: string }> {
+  try {
+    ErrorLogger.info('updateJobReportStatus', 'Updating job report status', { id, data });
+    
+    const result = await api.patch<{ message: string }>(
+      `/api/v1/admin/job-reports/${id}/status`,
+      data
+    );
+    
+    ErrorLogger.info('updateJobReportStatus', 'Job report status updated successfully');
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('updateJobReportStatus', 'Failed to update job report status', error);
+    throw error;
+  }
+}
+
+// Get pending reports count (admin)
+export async function getPendingReportsCount(): Promise<{ pending_count: number }> {
+  try {
+    ErrorLogger.info('getPendingReportsCount', 'Fetching pending reports count');
+    
+    const result = await api.get<{ pending_count: number }>(
+      '/api/v1/admin/job-reports/pending-count'
+    );
+    
+    ErrorLogger.info('getPendingReportsCount', 'Pending reports count fetched', { count: result.pending_count });
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error('getPendingReportsCount', 'Failed to fetch pending reports count', error);
+    throw error;
+  }
+}
+
+// Ban company request
+export interface BanCompanyRequest {
+  company_id: number;
+  reason: string;
+}
+
+// Ban a company (admin)
+export async function banCompany(data: BanCompanyRequest): Promise<{ message: string }> {
+  try {
+    ErrorLogger.info("banCompany", "Banning company", { data });
+    
+    const result = await api.post<{ message: string }>(
+      "/api/v1/admin/job-reports/ban-company",
+      data
+    );
+    
+    ErrorLogger.info("banCompany", "Company banned successfully");
+    
+    return result;
+  } catch (error) {
+    ErrorLogger.error("banCompany", "Failed to ban company", error);
+    throw error;
+  }
+}
