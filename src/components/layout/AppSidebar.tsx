@@ -12,6 +12,7 @@ import {
   Wallet,
   Briefcase,
   Flag,
+  ClipboardList,
 } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -36,6 +37,7 @@ const menuItems = [
   { title: 'Companies', url: '/companies', icon: Building2 },
   { title: 'Job Seekers', url: '/job-seekers', icon: Users },
   { title: 'Job Management', url: '/jobs', icon: Briefcase },
+  { title: 'Interview Test', url: '/interview-test', icon: ClipboardList },
   { title: 'Support', url: '/support', icon: MessageSquare },
   { title: 'Job Reports', url: '/job-reports', icon: Flag },
   { title: 'Notifications', url: '/notifications', icon: Bell },

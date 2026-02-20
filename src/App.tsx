@@ -17,6 +17,7 @@ import Billing from "./pages/Billing";
 import ReferralPartners from "./pages/ReferralPartners";
 import ReferredCompanies from "./pages/ReferredCompanies";
 import CommissionPayouts from "./pages/CommissionPayouts";
+import InterviewTest from "./pages/InterviewTest";
 import DebugLogs from "./pages/DebugLogs";
 import NotFound from "./pages/NotFound";
 
@@ -92,6 +93,14 @@ const App = () => (
               element={
                 <AdminLayout>
                   <Billing />
+                </AdminLayout>
+              }
+            />
+            <Route
+              path="/interview-test"
+              element={
+                <AdminLayout>
+                  <InterviewTest />
                 </AdminLayout>
               }
             />
