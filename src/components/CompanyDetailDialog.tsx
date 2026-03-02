@@ -95,8 +95,8 @@ export function CompanyDetailDialog({ isOpen, onClose, companyId }: CompanyDetai
           <DialogTitle className="flex items-center justify-between">
             <span>{company?.company_name || 'Company Detail'}</span>
             {company?.company_status && (
-              <Badge className={getStatusBadgeColor(company.company_status)}>
-                {company.company_status}
+              <Badge className={getStatusBadgeColor(company.company_status.toUpperCase())}>
+                {company.company_status.toUpperCase()}
               </Badge>
             )}
           </DialogTitle>
