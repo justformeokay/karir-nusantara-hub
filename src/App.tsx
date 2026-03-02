@@ -18,6 +18,7 @@ import ReferralPartners from "./pages/ReferralPartners";
 import ReferredCompanies from "./pages/ReferredCompanies";
 import CommissionPayouts from "./pages/CommissionPayouts";
 import InterviewTest from "./pages/InterviewTest";
+import SystemSettings from "./pages/SystemSettings";
 import DebugLogs from "./pages/DebugLogs";
 import NotFound from "./pages/NotFound";
 
@@ -101,6 +102,14 @@ const App = () => (
               element={
                 <AdminLayout>
                   <InterviewTest />
+                </AdminLayout>
+              }
+            />
+            <Route
+              path="/system-settings"
+              element={
+                <AdminLayout>
+                  <SystemSettings />
                 </AdminLayout>
               }
             />

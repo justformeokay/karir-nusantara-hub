@@ -13,6 +13,7 @@ import {
   Briefcase,
   Flag,
   ClipboardList,
+  Settings,
 } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -42,6 +43,7 @@ const menuItems = [
   { title: 'Job Reports', url: '/job-reports', icon: Flag },
   { title: 'Notifications', url: '/notifications', icon: Bell },
   { title: 'Billing', url: '/billing', icon: CreditCard },
+  { title: 'System Settings', url: '/system-settings', icon: Settings },
 ];
 
 const referralMenuItems = [
